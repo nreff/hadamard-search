@@ -1,0 +1,15 @@
+[package]
+name = "hadamard-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+hadamard-core = { path = "../core" }
+hadamard-search = { path = "../search" }
+hadamard-construct = { path = "../construct" }
+
+[[bin]]
+name = "hadamard"
+path = "src/main.rs"

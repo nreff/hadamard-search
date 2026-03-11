@@ -1,0 +1,5 @@
+/target
+/outputs/**
+!/outputs/.gitkeep
+*.chk
+*.bin

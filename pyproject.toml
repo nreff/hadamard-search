@@ -1,0 +1,9 @@
+[project]
+name = "hadamard-research"
+version = "0.1.0"
+description = "Python-side validation and helper tooling for Hadamard matrix research."
+requires-python = ">=3.8"
+dependencies = []
+
+[tool.uv]
+package = false

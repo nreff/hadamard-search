@@ -1,0 +1,13 @@
+[package]
+name = "hadamard-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+hadamard-core = { path = "../core" }
+
+[lib]
+name = "hadamard_search"
+path = "src/lib.rs"
