@@ -106,6 +106,12 @@ impl Sequence {
         Sequence { values }
     }
 
+    pub fn reverse(&self) -> Sequence {
+        let mut values = self.values.clone();
+        values.reverse();
+        Sequence { values }
+    }
+
     pub fn canonical_normalized_rotation_line(&self) -> Option<String> {
         let mut best: Option<String> = None;
         for shift in 0..self.len() {
@@ -121,11 +127,29 @@ impl Sequence {
         best
     }
 
+    pub fn canonical_normalized_dihedral_line(&self) -> Option<String> {
+        let forward = self.canonical_normalized_rotation_line();
+        let reversed = self.reverse().canonical_normalized_rotation_line();
+        match (forward, reversed) {
+            (Some(lhs), Some(rhs)) => Some(lhs.min(rhs)),
+            (Some(line), None) | (None, Some(line)) => Some(line),
+            (None, None) => None,
+        }
+    }
+
     pub fn is_canonical_normalized_rotation(&self) -> bool {
         if !self.is_normalized() {
             return false;
         }
         self.canonical_normalized_rotation_line()
+            .map_or(false, |line| line == self.to_line())
+    }
+
+    pub fn is_canonical_normalized_dihedral(&self) -> bool {
+        if !self.is_normalized() {
+            return false;
+        }
+        self.canonical_normalized_dihedral_line()
             .map_or(false, |line| line == self.to_line())
     }
 }
@@ -234,6 +258,7 @@ impl CompressedSequence {
             .collect::<Vec<_>>()
             .join(",")
     }
+
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -267,24 +292,43 @@ impl LegendrePair {
     }
 
     pub fn canonical_common_shift_pair(&self) -> Option<(Sequence, Sequence)> {
-        let mut best: Option<(String, Sequence, Sequence)> = None;
-        for shift in 0..self.a.len() {
-            let a_rot = self.a.rotate(shift);
-            let b_rot = self.b.rotate(shift);
-            if !a_rot.is_normalized() || !b_rot.is_normalized() {
-                continue;
-            }
+        self.canonical_common_pair(false)
+    }
 
-            let a_line = a_rot.to_line();
-            let b_line = b_rot.to_line();
-            let (left_line, right_line, left_seq, right_seq) = if a_line <= b_line {
-                (a_line, b_line, a_rot, b_rot)
-            } else {
-                (b_line, a_line, b_rot, a_rot)
-            };
-            let key = format!("{left_line}|{right_line}");
-            if best.as_ref().map_or(true, |current| key < current.0) {
-                best = Some((key, left_seq, right_seq));
+    pub fn canonical_common_dihedral_pair(&self) -> Option<(Sequence, Sequence)> {
+        self.canonical_common_pair(true)
+    }
+
+    fn canonical_common_pair(&self, include_reversal: bool) -> Option<(Sequence, Sequence)> {
+        let mut best: Option<(String, Sequence, Sequence)> = None;
+        let variants = if include_reversal {
+            vec![
+                (self.a.clone(), self.b.clone()),
+                (self.a.reverse(), self.b.reverse()),
+            ]
+        } else {
+            vec![(self.a.clone(), self.b.clone())]
+        };
+
+        for (a_variant, b_variant) in variants {
+            for shift in 0..self.a.len() {
+                let a_rot = a_variant.rotate(shift);
+                let b_rot = b_variant.rotate(shift);
+                if !a_rot.is_normalized() || !b_rot.is_normalized() {
+                    continue;
+                }
+
+                let a_line = a_rot.to_line();
+                let b_line = b_rot.to_line();
+                let (left_line, right_line, left_seq, right_seq) = if a_line <= b_line {
+                    (a_line, b_line, a_rot, b_rot)
+                } else {
+                    (b_line, a_line, b_rot, a_rot)
+                };
+                let key = format!("{left_line}|{right_line}");
+                if best.as_ref().map_or(true, |current| key < current.0) {
+                    best = Some((key, left_seq, right_seq));
+                }
             }
         }
         best.map(|(_, left, right)| (left, right))
@@ -389,6 +433,15 @@ mod tests {
     }
 
     #[test]
+    fn known_length_thirteen_pair_is_legendre_pair() {
+        let a = Sequence::new(vec![1, 1, 1, -1, 1, 1, 1, -1, 1, -1, -1, -1, -1]).expect("a");
+        let b = Sequence::new(vec![1, -1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, -1]).expect("b");
+        let pair = LegendrePair::new(a, b).expect("pair");
+        assert!(pair.is_legendre_pair());
+        assert!(pair.has_two_circulant_row_sums());
+    }
+
+    #[test]
     fn legendre_pair_common_shift_canonicalization_is_shift_invariant() {
         let a = Sequence::new(vec![1, -1, -1, -1, 1, -1, 1, 1, 1]).expect("a");
         let b = Sequence::new(vec![1, -1, -1, 1, 1, -1, 1, -1, 1]).expect("b");
@@ -399,6 +452,21 @@ mod tests {
                 .map(|(x, y)| (x.to_line(), y.to_line())),
             shifted
                 .canonical_common_shift_pair()
+                .map(|(x, y)| (x.to_line(), y.to_line()))
+        );
+    }
+
+    #[test]
+    fn legendre_pair_common_dihedral_canonicalization_is_reversal_invariant() {
+        let a = Sequence::new(vec![1, -1, -1, -1, 1, -1, 1, 1, 1]).expect("a");
+        let b = Sequence::new(vec![1, -1, -1, 1, 1, -1, 1, -1, 1]).expect("b");
+        let pair = LegendrePair::new(a.clone(), b.clone()).expect("pair");
+        let reversed = LegendrePair::new(a.reverse(), b.reverse()).expect("reversed");
+        assert_eq!(
+            pair.canonical_common_dihedral_pair()
+                .map(|(x, y)| (x.to_line(), y.to_line())),
+            reversed
+                .canonical_common_dihedral_pair()
                 .map(|(x, y)| (x.to_line(), y.to_line()))
         );
     }
@@ -419,5 +487,20 @@ mod tests {
         assert_ne!(sequence.to_line(), rotated.to_line());
         assert!(sequence.is_normalized());
         assert!(!rotated.is_normalized() || sequence.to_line() != canonical);
+    }
+
+    #[test]
+    fn canonical_normalized_dihedral_detects_reversal_equivalence() {
+        let sequence = Sequence::new(vec![1, 1, 1, 1, -1, 1, 1, -1, 1, 1, -1, -1, -1, -1, -1])
+            .expect("sequence");
+        let reversed = sequence.reverse();
+        assert_eq!(
+            sequence.canonical_normalized_dihedral_line(),
+            reversed.canonical_normalized_dihedral_line()
+        );
+        let canonical = sequence
+            .canonical_normalized_dihedral_line()
+            .expect("canonical line");
+        assert!(canonical.starts_with('+'));
     }
 }

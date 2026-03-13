@@ -112,4 +112,14 @@ mod tests {
         assert_eq!(matrix.rows(), 24);
         assert!(matrix.is_hadamard());
     }
+
+    #[test]
+    fn known_length_thirteen_pair_builds_order_twenty_eight_hadamard() {
+        let a = Sequence::new(vec![1, 1, 1, -1, 1, 1, 1, -1, 1, -1, -1, -1, -1]).expect("a");
+        let b = Sequence::new(vec![1, -1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, -1]).expect("b");
+        let pair = LegendrePair::new(a, b).expect("pair");
+        let matrix = build_two_circulant_hadamard(&pair).expect("matrix");
+        assert_eq!(matrix.rows(), 28);
+        assert!(matrix.is_hadamard());
+    }
 }

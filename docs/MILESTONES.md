@@ -48,6 +48,9 @@ Completion standard:
 - fast backend agrees with the reference backend within explicit tolerance
 - no valid known case is rejected because of spectral backend differences
 
+Current status:
+- complete via the in-tree mixed-radix `fft` backend, with direct-backend agreement tests across many small normalized sequences
+
 ## M2. Strong compressed LP filtering
 
 Goal:
@@ -109,6 +112,9 @@ Completion standard:
 - the project no longer depends on a single known case
 - at least one nontrivial case beyond length 5 / order 12 is in the test ladder
 
+Current status:
+- complete through the length-`13` / order-`28` ladder, with independent Python validation of the exported matrices
+
 ## M5. SDS infrastructure
 
 Goal:
@@ -129,6 +135,9 @@ Required gates:
 Completion standard:
 - SDS code is mathematically test-backed, not just structurally present
 
+Current status:
+- complete for the current small-instance scope via cyclic block representation, difference-profile tests, `Z_167` table validation, and a shardable `Z_5` meet-in-the-middle recovery path
+
 ## M6. First serious LP(333) campaign
 
 Goal:
@@ -148,6 +157,9 @@ Required gates:
 
 Completion standard:
 - a long LP(333) run can be launched, resumed, inspected, and independently validated
+
+Current status:
+- started via `search lp --config ...` support, checked baseline and campaign-template configs, hardened artifact version rejection, and experimental direct-joint benchmark baselines through reduced length `11`, but not close to completion because the current production compressed enumeration does not scale to `333`
 
 ## Working rule
 

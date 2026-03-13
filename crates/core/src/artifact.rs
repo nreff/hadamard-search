@@ -1,5 +1,7 @@
 use std::fmt::Write as _;
 
+pub const CURRENT_ARTIFACT_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtifactHeader {
     pub version: u32,
@@ -10,7 +12,7 @@ pub struct ArtifactHeader {
 impl ArtifactHeader {
     pub fn new(family: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
-            version: 1,
+            version: CURRENT_ARTIFACT_VERSION,
             family: family.into(),
             description: description.into(),
         }
@@ -119,7 +121,16 @@ impl CheckpointState {
         }
 
         Ok(Self {
-            version: version.ok_or_else(|| "missing version".to_string())?,
+            version: {
+                let version = version.ok_or_else(|| "missing version".to_string())?;
+                if version != CURRENT_ARTIFACT_VERSION {
+                    return Err(format!(
+                        "unsupported checkpoint version {version}; expected {}",
+                        CURRENT_ARTIFACT_VERSION
+                    ));
+                }
+                version
+            },
             mode: mode.ok_or_else(|| "missing mode".to_string())?,
             length: length.ok_or_else(|| "missing length".to_string())?,
             compression: compression.ok_or_else(|| "missing compression".to_string())?,
@@ -133,7 +144,7 @@ impl CheckpointState {
 
 #[cfg(test)]
 mod tests {
-    use super::CheckpointState;
+    use super::{CheckpointState, CURRENT_ARTIFACT_VERSION};
 
     #[test]
     fn checkpoint_roundtrip() {
@@ -149,5 +160,15 @@ mod tests {
         };
         let reparsed = CheckpointState::from_text(&original.to_text()).expect("parse");
         assert_eq!(original, reparsed);
+    }
+
+    #[test]
+    fn checkpoint_rejects_unknown_version() {
+        let text = format!(
+            "version={}\nmode=lp\nlength=9\ncompression=3\nshard_index=0\nshard_count=1\nnext_attempt=0\nmatches_found=0\n",
+            CURRENT_ARTIFACT_VERSION + 1
+        );
+        let error = CheckpointState::from_text(&text).expect_err("expected version error");
+        assert!(error.contains("unsupported checkpoint version"));
     }
 }
