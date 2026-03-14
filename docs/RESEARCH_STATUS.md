@@ -19,22 +19,29 @@ Verified during this audit:
 
 - `cargo test` passes across the workspace
 - the current best reduced-length-`11` direct joint benchmark reproduces exactly:
+- the current reduced-length-`11` direct joint benchmark with the newer seam-aware tail join reproduces exactly:
   - command:
-    - `cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1`
+    - `cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 11 --max-pairs 1`
   - output summary:
     - `branches_considered=0`
-    - `tail_spectral_pruned=996304`
-    - `tail_candidates_checked=996305`
+    - `tail_spectral_pruned=5789`
+    - `tail_residual_pruned=2609`
+    - `tail_candidates_checked=8399`
     - `pairs_emitted=1`
-    - `elapsed_seconds=14.19`
+    - `elapsed_seconds=9.77`
 
 Not yet resolved during this audit:
 
-- the next anchor run
-  - `cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1`
-  remains materially harder
-  - a `120`-second capped run did not finish and exited on timeout
-  - so reduced length `15` should still be treated as the next real scaling barrier
+- the current best reduced-length-`15` anchor is now measured rather than merely capped
+  - `cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 12 --max-pairs 1`
+  completed in `14.13` seconds
+  - output summary:
+    - `branches_considered=48`
+    - `tail_candidates_checked=129335`
+    - `tail_spectral_pruned=71722`
+    - `tail_residual_pruned=57612`
+    - `pairs_emitted=1`
+  - reduced length `15` is therefore no longer an inaccessible anchor, but it remains the next serious scaling barrier because the cost is dominated by tail-candidate multiplicity
 
 ## Executive State
 
@@ -116,6 +123,7 @@ Additions that are currently kept because they are correct and measured:
 - packed tail encoding
 - factorized tail completion for deeper tails
 - exact tail-side spectral filtering
+- exact shift-1 seam filtering inside factorized tail joins
 
 Best verified reduced-length-`11` progression so far:
 
@@ -135,10 +143,56 @@ Best verified reduced-length-`11` progression so far:
   - `64` branches
 - factorized depth `11`:
   - `0` branches
-  - `996305` tail candidates checked
-  - `996304` tail-side spectral prunes
+  - historical combined-norm key: `996305` tail candidates checked, `996304` tail-side spectral prunes, `11.80s`
+  - current separate per-side norm key: `124981` tail candidates checked, `122670` tail-side spectral prunes, `2310` tail residual prunes, `13.65s`
+  - current shift-1 seam-aware join with `1` monitored frequency: `8399` tail candidates checked, `5789` tail spectral prunes, `2609` tail residual prunes, `9.77s`
   - `1` emitted pair
-  - `14.19` seconds on the current machine during this audit
+
+Reduced-length-`15` anchors with the same method family:
+
+- historical combined-norm key, tail depth `11`:
+  - `160` branches
+  - `96096005` tail candidates checked
+  - `96095826` tail-side spectral prunes
+  - `178` tail residual prunes
+  - `1` emitted pair
+  - `158.94` seconds
+- current separate per-side norm key, tail depth `11`:
+  - `160` branches
+  - `91241732` tail candidates checked
+  - `91241643` tail-side spectral prunes
+  - `88` tail residual prunes
+  - `1` emitted pair
+  - `158.31` seconds
+- current separate per-side norm key, tail depth `12`:
+  - `48` branches
+  - `90668636` tail candidates checked
+  - `90668033` tail-side spectral prunes
+  - `602` tail residual prunes
+  - `1` emitted pair
+  - `151.08` seconds
+- current shift-1 seam-aware join, tail depth `12`, `1` monitored frequency:
+  - `48` branches
+  - `129335` tail candidates checked
+  - `71722` tail-side spectral prunes
+  - `57612` tail residual prunes
+  - `1` emitted pair
+  - `14.13` seconds
+
+Interpretation:
+
+- the latest change did not alter the search counts
+- recent implementation work improved the factorized tail path by:
+  - doing spectral rejection from cached segment contributions before decoding and stitching full tail candidates
+  - checking the full exact compressed residual on raw assignment buffers before constructing `CompressedSequence` values
+  - carrying separate `norm_a` / `norm_b` values in the exact tail keys instead of only the combined norm
+- the newest step is more substantial:
+  - using the exact shift-`1` seam equation as a factorized join filter in natural-order suffix tails
+- the first two are implementation improvements
+- the separate per-side norm key is a genuine multiplicity reduction, but currently shows a tradeoff:
+  - it reduces checked tails sharply on reduced length `11`, but increases runtime there because of extra bookkeeping
+  - it helps more on reduced length `15`, where the best current anchor is now tail depth `12` at `151.08s`
+- the shift-`1` seam filter is the first follow-up that changes the reduced length-`15` anchor qualitatively again, bringing it down to about `14` seconds
 
 This is the clearest evidence that the research direction has genuinely shifted shape.
 
@@ -230,7 +284,7 @@ Not yet justified:
 - "this will scale to `LP(333)`"
 - "negative computational results here would imply nonexistence"
 
-The gap is still scaling evidence. Reduced length `11` is now impressive relative to where the code started, but reduced length `15` is still hard enough that we should not overstate the reach of the current method.
+The gap is still scaling evidence. Reduced length `11` is now strong and reduced length `15` is now measurable, but the latter already requires checking about `96` million tail candidates for the first hit, so we should not overstate the reach of the current method.
 
 ## What Would Make This Publishable
 
@@ -265,7 +319,7 @@ Production compressed pipeline:
 Experimental direct-joint path:
 
 - exact tail candidate volume per key is now the dominant cost on the best reduced-length-`11` configuration
-- the next anchor point at reduced length `15` is still materially expensive
+- the reduced-length-`15` anchor confirms the same regime more strongly: only `160` branches, but about `96` million tail candidates checked
 
 MITM line:
 

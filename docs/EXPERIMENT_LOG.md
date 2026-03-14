@@ -296,3 +296,233 @@ Hypothesis:
 Planned evaluation:
 - compose depth `7` tails from exact `(3,4)` or `(4,3)` sub-tail joins keyed by remaining sums and combined norm
 - benchmark the reduced length-`11` direct probe again before considering any deeper exact tail
+
+Observed result:
+- factorized tail completion made deeper exact tails practical without building monolithic raw tables
+- on reduced length `11` (`length 33`, factor `3`):
+  - factorized depth `7`: `272` branches
+  - factorized depth `8`: `64` branches
+  - factorized depth `11`: `0` branches, `996305` exact tail candidates checked
+
+Conclusion:
+- factorization is the reason the direct joint probe can now reach the tail-dominated regime at all
+- but once depth `11` is reached, the next bottleneck is no longer branching or table construction
+- it is candidate multiplicity inside exact tail keys
+
+### Adopted: cached segment spectral rejection inside factorized tail completion
+
+Attempt:
+- in the factorized exact-tail path, reject joined left/right tail candidates using cached segment-level spectral contributions before decoding and stitching the full tail values
+
+Why it looked promising:
+- once depth `11` removed branching on the reduced length-`11` benchmark, most work was being spent materializing candidates that were about to fail the tail spectral check
+
+Observed result:
+- the search counts stayed exactly the same on the re-verified reduced length-`11` benchmark:
+  - `0` branches
+  - `996305` tail candidates checked
+  - `996304` tail spectral prunes
+  - `1` emitted pair
+- runtime improved from `14.19s` to `12.64s`
+- the `length=45`, `compression=3`, `tail_depth=11` capped anchor still timed out at `120s`
+
+Conclusion:
+- this is a useful implementation improvement in the tail-dominated regime
+- it is not a new pruning idea
+- the main remaining barrier is still tail-key multiplicity, not per-candidate decoding overhead
+
+### Adopted: raw exact residual check before `CompressedSequence` construction
+
+Attempt:
+- after the tail candidate survives spectral filtering, compute the full exact compressed Legendre residual directly from the assignment buffers and only construct `CompressedSequence` values for actual zero-residual hits
+
+Why it looked promising:
+- in the tail-dominated regime, almost every candidate is rejected
+- allocating and collecting full sequence objects for those rejects is unnecessary overhead
+
+Observed result:
+- the exact reduced length-`11` search counts stayed the same:
+  - `0` branches
+  - `996305` tail candidates checked
+  - `996304` tail spectral prunes
+  - `tail_residual_pruned=0`
+  - `1` emitted pair
+- runtime improved further from `12.64s` to `11.80s`
+- the `length=45`, `compression=3`, `tail_depth=11` capped anchor still timed out at `120s`
+
+Conclusion:
+- this is another valid implementation improvement in the tail-dominated regime
+- it reduces per-candidate overhead but still does not change the next scaling barrier
+
+### Measured: first reduced-length-15 direct-joint anchor
+
+Run:
+- `cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1`
+
+Observed result:
+- completed in `158.94s`
+- `branches_considered=160`
+- `norm_pruned=20`
+- `tail_candidates_checked=96096005`
+- `tail_spectral_pruned=96095826`
+- `tail_residual_pruned=178`
+- `pairs_emitted=1`
+
+Conclusion:
+- reduced length `15` is no longer merely a capped or speculative anchor
+- the method clearly remains tail-dominated there too
+- the next useful experiments should target reducing tail-key multiplicity rather than branch count
+
+### Adopted: separate per-side norm keys in exact tail tables
+
+Attempt:
+- strengthen the exact tail key from `(sum_a, sum_b, norm_a + norm_b)` to `(sum_a, sum_b, norm_a, norm_b)`
+- use the row-sum/squared-norm reachability tables to enumerate only feasible per-side norm splits before exact tail lookup or factorized join
+
+Why it looked promising:
+- the old combined-norm key collapsed many tail states that were not actually interchangeable
+- the search already had exact per-side norm reachability information available, so this was a completeness-safe way to cut multiplicity at the source
+
+Observed result:
+- reduced length `11`, tail depth `11`:
+  - tail candidates dropped from `996305` to `124981`
+  - tail spectral prunes dropped to `122670`
+  - tail residual prunes rose to `2310`
+  - runtime got worse on this small case: `11.80s` -> `13.65s`
+- reduced length `15`, tail depth `11`:
+  - tail candidates dropped from `96096005` to `91241732`
+  - runtime improved slightly: `158.94s` -> `158.31s`
+- reduced length `15`, tail depth `12`:
+  - now better than the old depth-`11` baseline
+  - `48` branches
+  - `90668636` tail candidates checked
+  - `151.08s`
+
+Conclusion:
+- this is a real multiplicity reduction, not just a runtime polish
+- the benefit is mixed on small cases because the stronger key adds overhead
+- on the more relevant reduced length-`15` anchor, it is directionally helpful and makes deeper exact tail depth `12` worthwhile again
+
+### Rejected: adaptive factorized split selection by estimated join volume
+
+Attempt:
+- instead of always splitting a factorized tail at `remaining/2`, estimate the keyed join volume for each valid split and choose the smallest one
+
+Why it looked promising:
+- after strengthening the tail key, split choice looked like a natural next lever
+- in principle, different valid `(left_len, right_len)` choices could expose much smaller keyed joins
+
+Observed result:
+- on the measured reduced length-`11` and reduced length-`15` anchors, the chosen split produced the same search counts as the fixed half split
+- runtime got slightly worse because the estimator added overhead without reducing candidate multiplicity
+
+Outcome:
+- reverted
+- for the current tail sizes, split selection is not the bottleneck; key strength is
+
+### Adopted: exact shift-1 seam key in factorized natural-order tail joins
+
+Attempt:
+- use the exact compressed shift-`1` identity at the factorized seam as a join filter before candidate-level spectral and residual checks
+- for a natural-order suffix tail, this depends only on:
+  - prefix boundary values
+  - left/right segment boundary values
+  - left/right internal adjacent-pair sums
+
+Why it looked promising:
+- this is the first exact shift constraint that is both:
+  - strong enough to cut multiplicity sharply
+  - cheap enough to use before candidate-level spectral filtering
+
+Observed result:
+- reduced length `11`, tail depth `11`, `K=1`:
+  - `tail_candidates_checked=8399`
+  - `tail_spectral_pruned=5789`
+  - `tail_residual_pruned=2609`
+  - `elapsed_seconds=9.77`
+- reduced length `15`, tail depth `12`, `K=1`:
+  - `tail_candidates_checked=129335`
+  - `tail_spectral_pruned=71722`
+  - `tail_residual_pruned=57612`
+  - `elapsed_seconds=14.13`
+
+Comparison to the previous best reduced length-`15` anchor:
+- before seam key: `90668636` checked tails and `151.08s`
+- after seam key: `129335` checked tails and `14.13s`
+
+Conclusion:
+- this is a major exact-tail-key improvement
+- it changes the reduced length-`15` anchor by more than an order of magnitude in runtime and by roughly three orders of magnitude in checked tail candidates
+- in the new regime, `1` monitored frequency is better than `4`, and `0` is slightly worse than `1`
+
+### Measured: next anchors after the shift-1 seam key
+
+Observed result:
+- reduced length `17` (`length 51`, factor `3`, tail depth `12`, `K=1`):
+  - `branches_considered=768`
+  - `norm_pruned=186`
+  - `tail_candidates_checked=223664`
+  - `tail_spectral_pruned=190445`
+  - `tail_residual_pruned=33218`
+  - `elapsed_seconds=103.67`
+- reduced length `17`, tail depth `11`, `K=1`:
+  - worse than depth `12`
+  - `tail_candidates_checked=288271`
+  - `elapsed_seconds=165.57`
+- reduced length `21` (`length 63`, factor `3`, tail depth `12`, `K=1`):
+  - did not finish within a `300s` cap
+
+Conclusion:
+- the new seam-aware regime has clearly moved the frontier beyond reduced length `15`
+- reduced length `17` is now a real timing anchor instead of a speculative future case
+- reduced length `21` is the next practical barrier
+
+Follow-up frequency check:
+- reduced length `17`, tail depth `12`:
+  - `K=1`: `103.67s`
+  - `K=0`: `97.27s`
+- reduced length `21`, tail depth `12`:
+  - both `K=1` and `K=0` exceed a `300s` cap
+
+Interpretation:
+- once the shift-`1` seam key is active, the usefulness of spectral monitoring becomes length-dependent
+- `K=1` remains best on reduced length `15`
+- `K=0` is slightly better on reduced length `17`
+
+### Tried: exact tail-side selected-shift residual prefilter
+
+Attempt:
+- after a tail candidate passes the tail spectral check but before constructing `CompressedSequence`, test the first few exact compressed residual shifts directly against the target `-2f`
+
+Why it looked promising:
+- the next barrier is no longer branch count
+- if the harder reduced length-`15` anchor leaves many spectrally admissible tails, an exact shift filter could reject some of them before the full residual computation
+
+Observed result:
+- preserved the known length-`15`, factor-`3` compressed projection
+- on the reduced length-`11` full-tail benchmark:
+  - `tail_residual_pruned=0`
+  - the exact search counts were unchanged
+- the `length=45`, `compression=3`, `tail_depth=11` capped anchor still timed out at `120s`
+
+Conclusion:
+- this filter is correctness-safe, but it is not currently a meaningful pruning lever on the measured benchmark
+- the current bottleneck still appears before these selected exact shifts become decisive
+
+### Rejected: heuristic low-energy ordering of factorized tail candidates
+
+Attempt:
+- when `max_pairs` is small, sort factorized tail candidates by a cheap selected-frequency segment-energy score and try low-energy candidates first
+
+Why it looked promising:
+- for the `max_pairs=1` benchmark, a better search order could in principle reach the first valid pair much earlier without changing completeness
+
+Observed result:
+- on the reduced length-`11` full-tail benchmark, the heuristic made the search worse:
+  - `tail_candidates_checked` increased from `996305` to `999097`
+  - `tail_spectral_pruned` increased correspondingly
+  - elapsed time also worsened
+
+Outcome:
+- reverted
+- the segment-energy heuristic is too weak a proxy for pair viability and should not be trusted as an ordering signal

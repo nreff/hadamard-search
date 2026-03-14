@@ -331,6 +331,10 @@ fn cmd_benchmark_compressed_pairs(args: Vec<String>) -> Result<(), String> {
         outcome.stats.tail_spectral_pruned
     );
     println!(
+        "tail_residual_pruned={}",
+        outcome.stats.tail_residual_pruned
+    );
+    println!(
         "tail_candidates_checked={}",
         outcome.stats.tail_candidates_checked
     );

@@ -148,6 +148,7 @@ pub struct DirectCompressedPairProbeStats {
     pub autocorrelation_pruned: u64,
     pub spectral_pruned: u64,
     pub tail_spectral_pruned: u64,
+    pub tail_residual_pruned: u64,
     pub tail_candidates_checked: u64,
     pub pairs_emitted: u64,
 }
@@ -266,13 +267,27 @@ struct DirectTailContext {
     precomputed_max: usize,
     alphabet: Vec<i16>,
     base: u64,
-    tails_by_len: Vec<BTreeMap<(i32, i32, i32), Vec<(u64, u64)>>>,
+    tails_by_len: Vec<BTreeMap<(i32, i32, i32, i32), Vec<(u64, u64)>>>,
 }
 
 #[derive(Clone, Debug, Default)]
 struct TailSpectralCache {
     left: HashMap<u64, Vec<ComplexAccumulator>>,
     right: HashMap<u64, Vec<ComplexAccumulator>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct TailBoundarySignature {
+    first_a: i16,
+    first_b: i16,
+    last_a: i16,
+    last_b: i16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TailShiftOneSignature {
+    boundary: TailBoundarySignature,
+    internal_sum: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1520,6 +1535,7 @@ fn direct_compressed_pair_probe_recursive(
             squared_norm_b,
             a_assignments,
             b_assignments,
+            remaining_norms,
             total_squared_norm,
             spectral_context,
             spectral_a,
@@ -1676,10 +1692,10 @@ fn build_direct_tail_context(alphabet: &[i16], max_remaining: usize) -> DirectTa
     let base = alphabet.len() as u64;
     let precomputed_max = max_remaining.min(6);
     let mut tails_by_len = Vec::with_capacity(precomputed_max + 1);
-    tails_by_len.push(BTreeMap::from([((0, 0, 0), vec![(0_u64, 0_u64)])]));
+    tails_by_len.push(BTreeMap::from([((0, 0, 0, 0), vec![(0_u64, 0_u64)])]));
     for length in 1..=precomputed_max {
-        let mut map = BTreeMap::<(i32, i32, i32), Vec<(u64, u64)>>::new();
-        enumerate_tail_pairs(length, alphabet, base, 0, 0, 0, 0, 0, &mut map);
+        let mut map = BTreeMap::<(i32, i32, i32, i32), Vec<(u64, u64)>>::new();
+        enumerate_tail_pairs(length, alphabet, base, 0, 0, 0, 0, 0, 0, &mut map);
         tails_by_len.push(map);
     }
     DirectTailContext {
@@ -1699,11 +1715,14 @@ fn enumerate_tail_pairs(
     b_code: u64,
     sum_a: i32,
     sum_b: i32,
-    norm: i32,
-    out: &mut BTreeMap<(i32, i32, i32), Vec<(u64, u64)>>,
+    norm_a: i32,
+    norm_b: i32,
+    out: &mut BTreeMap<(i32, i32, i32, i32), Vec<(u64, u64)>>,
 ) {
     if remaining == 0 {
-        out.entry((sum_a, sum_b, norm)).or_default().push((a_code, b_code));
+        out.entry((sum_a, sum_b, norm_a, norm_b))
+            .or_default()
+            .push((a_code, b_code));
         return;
     }
     for (a_index, a) in alphabet.iter().enumerate() {
@@ -1716,7 +1735,8 @@ fn enumerate_tail_pairs(
                 b_code * base + b_index as u64,
                 sum_a + i32::from(*a),
                 sum_b + i32::from(*b),
-                norm + i32::from(*a) * i32::from(*a) + i32::from(*b) * i32::from(*b),
+                norm_a + i32::from(*a) * i32::from(*a),
+                norm_b + i32::from(*b) * i32::from(*b),
                 out,
             );
         }
@@ -1735,6 +1755,7 @@ fn exact_tail_complete(
     squared_norm_b: i32,
     a_assignments: &mut [Option<i16>],
     b_assignments: &mut [Option<i16>],
+    remaining_norms: &[BTreeMap<i32, BTreeSet<i32>>],
     total_squared_norm: i32,
     spectral_context: &DirectPairSpectralContext,
     spectral_a: &[ComplexAccumulator],
@@ -1748,28 +1769,41 @@ fn exact_tail_complete(
     let required_sum_a = row_sum_target - sum_a;
     let required_sum_b = row_sum_target - sum_b;
     let required_norm = total_squared_norm - (squared_norm_a + squared_norm_b);
+    let feasible_splits = feasible_tail_norm_splits(
+        remaining,
+        required_sum_a,
+        required_sum_b,
+        required_norm,
+        remaining_norms,
+    );
     if remaining <= tail_context.precomputed_max {
-        let Some(candidates) = tail_context.tails_by_len[remaining]
-            .get(&(required_sum_a, required_sum_b, required_norm))
-        else {
-            return Ok(());
-        };
-        return apply_tail_candidates(
-            remaining,
-            factor,
-            positions,
-            index,
-            a_assignments,
-            b_assignments,
-            spectral_context,
-            spectral_a,
-            spectral_b,
-            tail_context,
-            candidates,
-            stats,
-            out,
-            max_pairs,
-        );
+        for (required_norm_a, required_norm_b) in feasible_splits {
+            let Some(candidates) = tail_context.tails_by_len[remaining]
+                .get(&(required_sum_a, required_sum_b, required_norm_a, required_norm_b))
+            else {
+                continue;
+            };
+            apply_tail_candidates(
+                remaining,
+                factor,
+                positions,
+                index,
+                a_assignments,
+                b_assignments,
+                spectral_context,
+                spectral_a,
+                spectral_b,
+                tail_context,
+                candidates,
+                stats,
+                out,
+                max_pairs,
+            )?;
+            if out.len() >= max_pairs {
+                break;
+            }
+        }
+        return Ok(());
     }
 
     exact_factorized_tail_complete(
@@ -1779,7 +1813,7 @@ fn exact_tail_complete(
         index,
         required_sum_a,
         required_sum_b,
-        required_norm,
+        &feasible_splits,
         a_assignments,
         b_assignments,
         spectral_context,
@@ -1832,23 +1866,36 @@ fn apply_tail_candidates(
             a_assignments[position] = Some(a_tail[offset]);
             b_assignments[position] = Some(b_tail[offset]);
         }
-        let a = CompressedSequence::new(
-            factor,
-            a_assignments
-                .iter()
-                .map(|value| value.expect("full assignment"))
-                .collect(),
-        )?;
-        let b = CompressedSequence::new(
-            factor,
-            b_assignments
-                .iter()
-                .map(|value| value.expect("full assignment"))
-                .collect(),
-        )?;
-        if a.compressed_legendre_residual_against(&b) == 0 {
+        if !tail_exact_shift_consistent(a_assignments, b_assignments, factor) {
+            stats.tail_residual_pruned += 1;
+            for offset in 0..remaining {
+                let position = positions[index + offset];
+                a_assignments[position] = None;
+                b_assignments[position] = None;
+            }
+            continue;
+        }
+        if exact_compressed_legendre_residual_from_assignments(a_assignments, b_assignments, factor)
+            == 0
+        {
+            let a = CompressedSequence::new(
+                factor,
+                a_assignments
+                    .iter()
+                    .map(|value| value.expect("full assignment"))
+                    .collect(),
+            )?;
+            let b = CompressedSequence::new(
+                factor,
+                b_assignments
+                    .iter()
+                    .map(|value| value.expect("full assignment"))
+                    .collect(),
+            )?;
             out.push(DirectCompressedPair { a, b });
             stats.pairs_emitted += 1;
+        } else {
+            stats.tail_residual_pruned += 1;
         }
         for offset in 0..remaining {
             let position = positions[index + offset];
@@ -1866,7 +1913,7 @@ fn exact_factorized_tail_complete(
     index: usize,
     required_sum_a: i32,
     required_sum_b: i32,
-    required_norm: i32,
+    feasible_splits: &[(i32, i32)],
     a_assignments: &mut [Option<i16>],
     b_assignments: &mut [Option<i16>],
     spectral_context: &DirectPairSpectralContext,
@@ -1882,84 +1929,411 @@ fn exact_factorized_tail_complete(
     if left_len == 0 || right_len == 0 || right_len > tail_context.precomputed_max {
         return Ok(());
     }
+    let mut spectral_cache = TailSpectralCache::default();
+    let mut left_shift_one_cache = HashMap::<(u64, u64), TailShiftOneSignature>::new();
+    let mut right_shift_one_cache = HashMap::<(u64, u64), TailShiftOneSignature>::new();
     let left_map = &tail_context.tails_by_len[left_len];
     let right_map = &tail_context.tails_by_len[right_len];
-    for ((sum_a_left, sum_b_left, norm_left), left_candidates) in left_map {
+    let natural_positions = positions.iter().enumerate().all(|(slot, position)| *position == slot);
+    let shift_one_context = if natural_positions {
+        Some(build_factorized_shift_one_context(
+            a_assignments,
+            b_assignments,
+            index,
+            factor,
+        ))
+    } else {
+        None
+    };
+    for (required_norm_a, required_norm_b) in feasible_splits {
         if out.len() >= max_pairs {
             break;
         }
-        let key = (
-            required_sum_a - *sum_a_left,
-            required_sum_b - *sum_b_left,
-            required_norm - *norm_left,
-        );
-        let Some(right_candidates) = right_map.get(&key) else {
-            continue;
-        };
-        for (left_a, left_b) in left_candidates {
-            for (right_a, right_b) in right_candidates {
-                if out.len() >= max_pairs {
-                    break;
-                }
-                let combined = vec![(*left_a, *left_b), (*right_a, *right_b)];
-                let mut stitched = Vec::new();
-                for (a_code, b_code, len) in [
-                    (combined[0].0, combined[0].1, left_len),
-                    (combined[1].0, combined[1].1, right_len),
-                ] {
-                    let a_tail =
-                        decode_tail_code(a_code, len, tail_context.base, &tail_context.alphabet);
-                    let b_tail =
-                        decode_tail_code(b_code, len, tail_context.base, &tail_context.alphabet);
-                    stitched.extend(a_tail.into_iter().zip(b_tail.into_iter()));
-                }
-                stats.tail_candidates_checked += 1;
-                let a_tail = stitched.iter().map(|(a_value, _)| *a_value).collect::<Vec<_>>();
-                let b_tail = stitched.iter().map(|(_, b_value)| *b_value).collect::<Vec<_>>();
-                if !tail_exact_spectral_consistent(
-                    positions,
-                    index,
-                    &a_tail,
-                    &b_tail,
-                    spectral_context,
-                    spectral_a,
-                    spectral_b,
-                ) {
-                    stats.tail_spectral_pruned += 1;
-                    continue;
-                }
-                for (offset, (a_value, b_value)) in stitched.iter().enumerate() {
-                    let position = positions[index + offset];
-                    a_assignments[position] = Some(*a_value);
-                    b_assignments[position] = Some(*b_value);
-                }
-                let a = CompressedSequence::new(
-                    factor,
-                    a_assignments
-                        .iter()
-                        .map(|value| value.expect("full assignment"))
-                        .collect(),
-                )?;
-                let b = CompressedSequence::new(
-                    factor,
-                    b_assignments
-                        .iter()
-                        .map(|value| value.expect("full assignment"))
-                        .collect(),
-                )?;
-                if a.compressed_legendre_residual_against(&b) == 0 {
-                    out.push(DirectCompressedPair { a, b });
-                    stats.pairs_emitted += 1;
-                }
-                for offset in 0..remaining {
-                    let position = positions[index + offset];
-                    a_assignments[position] = None;
-                    b_assignments[position] = None;
+        for ((sum_a_left, sum_b_left, norm_a_left, norm_b_left), left_candidates) in left_map {
+            if out.len() >= max_pairs {
+                break;
+            }
+            let key = (
+                required_sum_a - *sum_a_left,
+                required_sum_b - *sum_b_left,
+                required_norm_a - *norm_a_left,
+                required_norm_b - *norm_b_left,
+            );
+            let Some(right_candidates) = right_map.get(&key) else {
+                continue;
+            };
+            let right_shift_one_buckets = shift_one_context.as_ref().map(|_| {
+                build_right_shift_one_buckets(
+                    right_candidates,
+                    right_len,
+                    tail_context,
+                    &mut right_shift_one_cache,
+                )
+            });
+            for (left_a, left_b) in left_candidates {
+                let left_shift_one_sig = shift_one_context.as_ref().map(|_| {
+                    cached_tail_shift_one_signature(
+                        &mut left_shift_one_cache,
+                        *left_a,
+                        *left_b,
+                        left_len,
+                        tail_context,
+                    )
+                });
+                let matching_right_candidates: Vec<(u64, u64)> = if let (Some(context), Some(sig), Some(buckets)) =
+                    (shift_one_context.as_ref(), left_shift_one_sig, right_shift_one_buckets.as_ref())
+                {
+                    right_candidates_for_shift_one(context, sig, buckets)
+                } else {
+                    right_candidates.to_vec()
+                };
+                for (right_a, right_b) in matching_right_candidates.iter() {
+                    if out.len() >= max_pairs {
+                        break;
+                    }
+                    stats.tail_candidates_checked += 1;
+                    if !factorized_tail_spectral_consistent(
+                        positions,
+                        index,
+                        left_len,
+                        right_len,
+                        *left_a,
+                        *left_b,
+                        *right_a,
+                        *right_b,
+                        spectral_context,
+                        spectral_a,
+                        spectral_b,
+                        tail_context,
+                        &mut spectral_cache,
+                    ) {
+                        stats.tail_spectral_pruned += 1;
+                        continue;
+                    }
+                    let combined = vec![(*left_a, *left_b), (*right_a, *right_b)];
+                    let mut stitched = Vec::with_capacity(remaining);
+                    for (a_code, b_code, len) in [
+                        (combined[0].0, combined[0].1, left_len),
+                        (combined[1].0, combined[1].1, right_len),
+                    ] {
+                        let a_tail = decode_tail_code(
+                            a_code,
+                            len,
+                            tail_context.base,
+                            &tail_context.alphabet,
+                        );
+                        let b_tail = decode_tail_code(
+                            b_code,
+                            len,
+                            tail_context.base,
+                            &tail_context.alphabet,
+                        );
+                        stitched.extend(a_tail.into_iter().zip(b_tail.into_iter()));
+                    }
+                    for (offset, (a_value, b_value)) in stitched.iter().enumerate() {
+                        let position = positions[index + offset];
+                        a_assignments[position] = Some(*a_value);
+                        b_assignments[position] = Some(*b_value);
+                    }
+                    if !tail_exact_shift_consistent(a_assignments, b_assignments, factor) {
+                        stats.tail_residual_pruned += 1;
+                        for offset in 0..remaining {
+                            let position = positions[index + offset];
+                            a_assignments[position] = None;
+                            b_assignments[position] = None;
+                        }
+                        continue;
+                    }
+                    if exact_compressed_legendre_residual_from_assignments(
+                        a_assignments,
+                        b_assignments,
+                        factor,
+                    ) == 0
+                    {
+                        let a = CompressedSequence::new(
+                            factor,
+                            a_assignments
+                                .iter()
+                                .map(|value| value.expect("full assignment"))
+                                .collect(),
+                        )?;
+                        let b = CompressedSequence::new(
+                            factor,
+                            b_assignments
+                                .iter()
+                                .map(|value| value.expect("full assignment"))
+                                .collect(),
+                        )?;
+                        out.push(DirectCompressedPair { a, b });
+                        stats.pairs_emitted += 1;
+                    } else {
+                        stats.tail_residual_pruned += 1;
+                    }
+                    for offset in 0..remaining {
+                        let position = positions[index + offset];
+                        a_assignments[position] = None;
+                        b_assignments[position] = None;
+                    }
                 }
             }
         }
     }
     Ok(())
+}
+
+fn feasible_tail_norm_splits(
+    remaining: usize,
+    required_sum_a: i32,
+    required_sum_b: i32,
+    required_norm: i32,
+    remaining_norms: &[BTreeMap<i32, BTreeSet<i32>>],
+) -> Vec<(i32, i32)> {
+    let Some(a_norms) = remaining_norms[remaining].get(&required_sum_a) else {
+        return Vec::new();
+    };
+    let Some(b_norms) = remaining_norms[remaining].get(&required_sum_b) else {
+        return Vec::new();
+    };
+    let mut splits = Vec::new();
+    let (iterate, lookup, a_first) = if a_norms.len() <= b_norms.len() {
+        (a_norms, b_norms, true)
+    } else {
+        (b_norms, a_norms, false)
+    };
+    for norm in iterate {
+        let other = required_norm - *norm;
+        if lookup.contains(&other) {
+            if a_first {
+                splits.push((*norm, other));
+            } else {
+                splits.push((other, *norm));
+            }
+        }
+    }
+    splits
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FactorizedShiftOneContext {
+    target: i32,
+    prefix_internal: i32,
+    prefix_first_a: i16,
+    prefix_first_b: i16,
+    prefix_last_a: i16,
+    prefix_last_b: i16,
+    has_prefix: bool,
+}
+
+fn build_factorized_shift_one_context(
+    a_assignments: &[Option<i16>],
+    b_assignments: &[Option<i16>],
+    index: usize,
+    factor: usize,
+) -> FactorizedShiftOneContext {
+    let has_prefix = index > 0;
+    let mut prefix_internal = 0_i32;
+    if has_prefix {
+        for slot in 0..index.saturating_sub(1) {
+            let a_i = i32::from(a_assignments[slot].expect("prefix assignment"));
+            let a_j = i32::from(a_assignments[slot + 1].expect("prefix assignment"));
+            let b_i = i32::from(b_assignments[slot].expect("prefix assignment"));
+            let b_j = i32::from(b_assignments[slot + 1].expect("prefix assignment"));
+            prefix_internal += a_i * a_j + b_i * b_j;
+        }
+    }
+    FactorizedShiftOneContext {
+        target: -2 * factor as i32,
+        prefix_internal,
+        prefix_first_a: a_assignments[0].unwrap_or(0),
+        prefix_first_b: b_assignments[0].unwrap_or(0),
+        prefix_last_a: if has_prefix {
+            a_assignments[index - 1].expect("prefix assignment")
+        } else {
+            0
+        },
+        prefix_last_b: if has_prefix {
+            b_assignments[index - 1].expect("prefix assignment")
+        } else {
+            0
+        },
+        has_prefix,
+    }
+}
+
+fn cached_tail_shift_one_signature(
+    cache: &mut HashMap<(u64, u64), TailShiftOneSignature>,
+    a_code: u64,
+    b_code: u64,
+    length: usize,
+    tail_context: &DirectTailContext,
+) -> TailShiftOneSignature {
+    *cache.entry((a_code, b_code)).or_insert_with(|| {
+        let a_values = decode_tail_code(a_code, length, tail_context.base, &tail_context.alphabet);
+        let b_values = decode_tail_code(b_code, length, tail_context.base, &tail_context.alphabet);
+        let mut internal_sum = 0_i32;
+        for slot in 0..length.saturating_sub(1) {
+            internal_sum +=
+                i32::from(a_values[slot]) * i32::from(a_values[slot + 1])
+                    + i32::from(b_values[slot]) * i32::from(b_values[slot + 1]);
+        }
+        TailShiftOneSignature {
+            boundary: TailBoundarySignature {
+                first_a: a_values[0],
+                first_b: b_values[0],
+                last_a: a_values[length - 1],
+                last_b: b_values[length - 1],
+            },
+            internal_sum,
+        }
+    })
+}
+
+fn build_right_shift_one_buckets(
+    right_candidates: &[(u64, u64)],
+    right_len: usize,
+    tail_context: &DirectTailContext,
+    cache: &mut HashMap<(u64, u64), TailShiftOneSignature>,
+) -> HashMap<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>> {
+    let mut buckets = HashMap::<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>>::new();
+    for (right_a, right_b) in right_candidates {
+        let sig =
+            cached_tail_shift_one_signature(cache, *right_a, *right_b, right_len, tail_context);
+        buckets
+            .entry(sig.boundary)
+            .or_default()
+            .entry(sig.internal_sum)
+            .or_default()
+            .push((*right_a, *right_b));
+    }
+    buckets
+}
+
+fn right_candidates_for_shift_one(
+    context: &FactorizedShiftOneContext,
+    left_sig: TailShiftOneSignature,
+    right_buckets: &HashMap<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>>,
+) -> Vec<(u64, u64)> {
+    let mut out = Vec::new();
+    for (boundary, internal_map) in right_buckets {
+        let required_internal = if context.has_prefix {
+            context.target
+                - context.prefix_internal
+                - (i32::from(context.prefix_last_a) * i32::from(left_sig.boundary.first_a)
+                    + i32::from(context.prefix_last_b) * i32::from(left_sig.boundary.first_b))
+                - left_sig.internal_sum
+                - (i32::from(left_sig.boundary.last_a) * i32::from(boundary.first_a)
+                    + i32::from(left_sig.boundary.last_b) * i32::from(boundary.first_b))
+                - (i32::from(boundary.last_a) * i32::from(context.prefix_first_a)
+                    + i32::from(boundary.last_b) * i32::from(context.prefix_first_b))
+        } else {
+            context.target
+                - left_sig.internal_sum
+                - (i32::from(left_sig.boundary.last_a) * i32::from(boundary.first_a)
+                    + i32::from(left_sig.boundary.last_b) * i32::from(boundary.first_b))
+                - (i32::from(boundary.last_a) * i32::from(left_sig.boundary.first_a)
+                    + i32::from(boundary.last_b) * i32::from(left_sig.boundary.first_b))
+        };
+        if let Some(candidates) = internal_map.get(&required_internal) {
+            out.extend(candidates.iter().copied());
+        }
+    }
+    out
+}
+
+fn factorized_tail_spectral_consistent(
+    positions: &[usize],
+    index: usize,
+    left_len: usize,
+    right_len: usize,
+    left_a: u64,
+    left_b: u64,
+    right_a: u64,
+    right_b: u64,
+    spectral_context: &DirectPairSpectralContext,
+    spectral_a: &[ComplexAccumulator],
+    spectral_b: &[ComplexAccumulator],
+    tail_context: &DirectTailContext,
+    cache: &mut TailSpectralCache,
+) -> bool {
+    let left_a_contrib = cached_tail_segment_spectral(
+        &mut cache.left,
+        left_a,
+        left_len,
+        positions,
+        index,
+        spectral_context,
+        tail_context,
+    );
+    let left_b_contrib = cached_tail_segment_spectral(
+        &mut cache.left,
+        left_b,
+        left_len,
+        positions,
+        index,
+        spectral_context,
+        tail_context,
+    );
+    let right_a_contrib = cached_tail_segment_spectral(
+        &mut cache.right,
+        right_a,
+        right_len,
+        positions,
+        index + left_len,
+        spectral_context,
+        tail_context,
+    );
+    let right_b_contrib = cached_tail_segment_spectral(
+        &mut cache.right,
+        right_b,
+        right_len,
+        positions,
+        index + left_len,
+        spectral_context,
+        tail_context,
+    );
+
+    for slot in 0..spectral_context.twiddles.len() {
+        let real_a =
+            spectral_a[slot].real + left_a_contrib[slot].real + right_a_contrib[slot].real;
+        let imag_a =
+            spectral_a[slot].imag + left_a_contrib[slot].imag + right_a_contrib[slot].imag;
+        let real_b =
+            spectral_b[slot].real + left_b_contrib[slot].real + right_b_contrib[slot].real;
+        let imag_b =
+            spectral_b[slot].imag + left_b_contrib[slot].imag + right_b_contrib[slot].imag;
+        let psd_a = real_a * real_a + imag_a * imag_a;
+        let psd_b = real_b * real_b + imag_b * imag_b;
+        if psd_a + psd_b > spectral_context.target_psd + 1.0e-9 {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn cached_tail_segment_spectral(
+    cache: &mut HashMap<u64, Vec<ComplexAccumulator>>,
+    code: u64,
+    length: usize,
+    positions: &[usize],
+    start_index: usize,
+    spectral_context: &DirectPairSpectralContext,
+    tail_context: &DirectTailContext,
+) -> Vec<ComplexAccumulator> {
+    cache
+        .entry(code)
+        .or_insert_with(|| {
+            let values = decode_tail_code(code, length, tail_context.base, &tail_context.alphabet);
+            let mut accumulators = vec![ComplexAccumulator::zero(); spectral_context.twiddles.len()];
+            for (offset, value) in values.iter().enumerate() {
+                let position = positions[start_index + offset];
+                for (slot, accumulator) in accumulators.iter_mut().enumerate() {
+                    accumulator.add_scaled(*value, spectral_context.twiddles[slot][position]);
+                }
+            }
+            accumulators
+        })
+        .clone()
 }
 
 fn decode_tail_code(code: u64, length: usize, base: u64, alphabet: &[i16]) -> Vec<i16> {
@@ -1971,6 +2345,60 @@ fn decode_tail_code(code: u64, length: usize, base: u64, alphabet: &[i16]) -> Ve
         current /= base;
     }
     values
+}
+
+fn tail_exact_shift_consistent(
+    a_assignments: &[Option<i16>],
+    b_assignments: &[Option<i16>],
+    factor: usize,
+) -> bool {
+    let order = a_assignments.len();
+    if order <= 1 {
+        return true;
+    }
+    let target = -2 * factor as i32;
+    let selected_shift_count = (order - 1).min(4);
+    for shift in 1..=selected_shift_count {
+        let mut total = 0_i32;
+        for index in 0..order {
+            let next = (index + shift) % order;
+            let a_i = i32::from(a_assignments[index].expect("full assignment"));
+            let a_j = i32::from(a_assignments[next].expect("full assignment"));
+            let b_i = i32::from(b_assignments[index].expect("full assignment"));
+            let b_j = i32::from(b_assignments[next].expect("full assignment"));
+            total += a_i * a_j + b_i * b_j;
+        }
+        if total != target {
+            return false;
+        }
+    }
+    true
+}
+
+fn exact_compressed_legendre_residual_from_assignments(
+    a_assignments: &[Option<i16>],
+    b_assignments: &[Option<i16>],
+    factor: usize,
+) -> i64 {
+    let order = a_assignments.len();
+    if order <= 1 {
+        return 0;
+    }
+    let target = -2_i64 * factor as i64;
+    let mut total = 0_i64;
+    for shift in 1..order {
+        let mut shift_total = 0_i64;
+        for index in 0..order {
+            let next = (index + shift) % order;
+            let a_i = i64::from(a_assignments[index].expect("full assignment"));
+            let a_j = i64::from(a_assignments[next].expect("full assignment"));
+            let b_i = i64::from(b_assignments[index].expect("full assignment"));
+            let b_j = i64::from(b_assignments[next].expect("full assignment"));
+            shift_total += a_i * a_j + b_i * b_j;
+        }
+        total += (shift_total - target).abs();
+    }
+    total
 }
 
 fn tail_exact_spectral_consistent(

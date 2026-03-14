@@ -158,7 +158,7 @@ cargo run -p hadamard-cli -- benchmark compressed-pairs-mitm --length 15 --compr
 
 That joint-space probe is not yet the production LP search path, but it already recovers the known length-`15`, factor-`3` compressed projection and, with the current selected-frequency pair-PSD bound plus packed exact-tail lookup at depth `6`, reaches a first length-`33`, factor-`3` compressed pair after `1360` joint branches. A first MITM benchmark path is also in-tree for comparison and now emits rough state-memory estimates before longer runs; see [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) for the measured tradeoffs.
 
-The current best verified direct-joint benchmark goes further: with factorized exact-tail completion at depth `11`, the reduced length-`11` (`length 33`, factor `3`) probe now eliminates branching entirely, checks `996305` exact tails, prunes `996304` of them spectrally, emits `1` pair, and completed in `14.19` seconds during the `2026-03-13` audit. See [`docs/RESEARCH_STATUS.md`](docs/RESEARCH_STATUS.md) for the full context and claim boundaries.
+The current best verified direct-joint benchmark goes further: with factorized exact-tail completion at depth `11`, the reduced length-`11` (`length 33`, factor `3`) probe now eliminates branching entirely, checks `996305` exact tails, prunes `996304` of them spectrally, emits `1` pair, and completed in `11.80` seconds during the `2026-03-13` audit. See [`docs/RESEARCH_STATUS.md`](docs/RESEARCH_STATUS.md) for the full context and claim boundaries.
 
 Run the staged compressed search demo:
 

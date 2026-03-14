@@ -124,7 +124,7 @@ Use the verified reduced length-`11` progression:
 - depth `6`: `1360`
 - factorized depth `7`: `272`
 - factorized depth `8`: `64`
-- factorized depth `11`: `0` branches, `996305` tail candidates, `996304` tail spectral prunes, `14.19s`
+- factorized depth `11`: `0` branches, `996305` tail candidates, `996304` tail spectral prunes, `11.80s`
 
 ## 6. Negative Results and Design Rejections
 
@@ -173,7 +173,8 @@ Structure:
 
 Safe current statement for the last item:
 
-- the `length=45`, `compression=3`, `tail_depth=11` direct-joint benchmark did not finish within `120` seconds on the audit run and remains the next scaling barrier
+- the `length=45`, `compression=3`, `tail_depth=11` direct-joint benchmark now completes in `158.94s`, with only `160` branches but about `96.1` million tail candidates checked
+- this strengthens the main interpretation: the next barrier is tail-candidate multiplicity, not branching
 
 Do not pad this section with speculative extrapolation to `333`.
 
@@ -197,7 +198,7 @@ Be explicit:
 
 - scaling to reduced length `15` is not yet routine
 - production compressed search still blows up too early
-- current evidence is strongest on reduced length `11`
+- current evidence is strongest on reduced lengths `11` and `15`, but only as `max_pairs=1` timing anchors rather than full campaign-scale evidence
 - no claim of asymptotic superiority
 - no claim that the method will reach `333` unchanged
 
@@ -208,7 +209,7 @@ These should mirror the code reality:
 1. stronger exact tail keys
 2. factorized tail representations with lower candidate multiplicity
 3. cheaper exact tail-side filters
-4. making reduced length `15` a routine benchmark
+4. making reduced length `15` substantially cheaper than the current `158.94s` / `96.1M`-candidate anchor
 
 Avoid weaker directions:
 
@@ -232,7 +233,7 @@ Recommended command block:
 ```bash
 cargo test
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1
-timeout 120s cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1
+timeout 300s cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1
 ```
 
 ## Data And Figure Checklist

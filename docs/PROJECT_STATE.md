@@ -60,7 +60,11 @@ Current state:
 - a small exact tail oracle now gives the strongest measured direct-joint improvement, cutting the reduced length-`11` benchmark down to `60704` branches
 - packed exact-tail lookup now pushes that same reduced length-`11` benchmark down further to `1360` branches at tail depth `6`
 - factorized exact-tail lookup can eliminate branching entirely on the reduced length-`11` benchmark, but then exact tail-candidate volume becomes the new bottleneck
-- the best currently re-verified reduced length-`11` direct probe uses factorized exact-tail completion at depth `11` and now checks `996305` exact tails, prunes `996304` of them spectrally, emits `1` pair, and completed in `14.19` seconds during the `2026-03-13` audit
+- the current direct tail path now carries separate per-side norm keys, which cuts reduced length-`11` checked tails from about `996k` to about `125k`, though with extra overhead on that small benchmark
+- the factorized tail join now also uses an exact shift-`1` seam filter in the natural-order suffix case, cutting reduced length-`11` to `8399` checked tails and the best reduced length-`15` anchor to `129335` checked tails
+- the current best reduced length-`15` direct-joint anchor is now `length 45`, factor `3`, tail depth `12`, `spectral_frequencies=1`: `48` branches and `14.13` seconds to the first pair
+- the next measured anchor is now reduced length `17` (`length 51`, factor `3`, tail depth `12`, `spectral_frequencies=1`): `223664` checked tails and `103.67` seconds to the first pair
+- reduced length `17` is slightly faster with `spectral_frequencies=0` than with `1`, while reduced length `21` (`length 63`, factor `3`) still exceeds a `5`-minute cap with either setting
 - exact small known cases are validated end to end
 
 Current known-case ladder:
@@ -213,7 +217,7 @@ Highest-value next steps:
 
 1. Optimize the exact-tail regime for candidate volume, not just branch count; factorized depth `11` already collapses branching but still checks about `1e6` exact tails on the reduced length-`11` benchmark.
 2. Extend the pair-PSD idea only if it still improves the reduced length-`11` benchmark alongside the tail oracle.
-3. Push the next reliable anchor from reduced length `11` toward reduced length `15` before making stronger scaling claims.
+3. Reduce the reduced length-`17` anchor from its current `103.67s` / `223664`-tail baseline before making stronger scaling claims.
 4. Keep using benchmarked branch/state estimates before any long run, especially for MITM-style experiments whose memory cost can dominate quickly.
 
 ## How To Read The Repo

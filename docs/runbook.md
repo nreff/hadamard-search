@@ -63,7 +63,8 @@ Current baseline:
 - the length-`33`, factor-`3` smoke probe already reaches `293139` generated candidates per side after `2774492` branch extensions, so further pruning is still required before `333`
 - the experimental direct compressed-pair probe recovers the known length-`15`, factor-`3` projection after `4960` joint branches
 - with exact joint squared-norm pruning, endpoint-aware autocorrelation intervals, selected-frequency pair-PSD bounds, packed exact-tail lookup, and tail depth `6`, the natural-order direct probe reaches its first length-`33`, factor-`3` compressed pair after `1360` branches
-- with factorized exact-tail completion at depth `11`, the same reduced length-`11` benchmark now eliminates branching entirely and instead checks `996305` exact tails, prunes `996304` of them with the tail-side spectral filter, emits `1` pair, and was re-verified in `14.19` seconds during the `2026-03-13` audit
+- with the shift-`1` seam-aware factorized join and `1` monitored frequency, the reduced length-`11` benchmark now checks only `8399` tails and completes in `9.77s`
+- the best current reduced length-`15` anchor is now `length=45`, `compression=3`, `tail_depth=12`, `spectral_frequencies=1`, which reaches a first pair in `14.13` seconds after `48` branches and `129335` checked tail candidates
 - natural order remains the preferred direct-probe benchmark; generator-`2` did not outperform it on the measured reduced length-`11` runs
 - frequency sweep on the same benchmark suggests `4` monitored frequencies is the current sweet spot: `1` is slightly weaker and `10` is no better than `4`
 - tail-depth sweep on the same benchmark:
@@ -73,7 +74,21 @@ Current baseline:
   - depth `6`: `1360` branches
   - factorized depth `7`: `272` branches
   - factorized depth `8`: `64` branches
-  - factorized depth `11`: `0` branches but `996305` exact tail candidates checked
+  - historical factorized depth `11`: `0` branches but `996305` exact tail candidates checked
+  - current separate-norm factorized depth `11`: `0` branches, `124981` exact tail candidates checked
+- spectral-frequency sweep in the new seam-aware regime:
+  - reduced length `15`, tail depth `12`, `K=4`: `17.29s`, `129356` checked tails
+  - reduced length `15`, tail depth `12`, `K=1`: `14.13s`, `129335` checked tails
+  - reduced length `15`, tail depth `12`, `K=0`: `14.29s`, `129337` checked tails
+  - reduced length `17`, tail depth `12`, `K=1`: `103.67s`, `223664` checked tails
+  - reduced length `17`, tail depth `12`, `K=0`: `97.27s`, `223676` checked tails
+- staged timing anchor beyond reduced length `11`:
+  - reduced length `15` (`length 45`, factor `3`, tail depth `11`, combined norm key): `158.94s`, `160` branches, `96096005` tail candidates checked
+  - reduced length `15` (`length 45`, factor `3`, tail depth `12`, separate per-side norm key): `151.08s`, `48` branches, `90668636` tail candidates checked
+  - reduced length `15` (`length 45`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): `14.13s`, `48` branches, `129335` tail candidates checked
+  - reduced length `17` (`length 51`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): `103.67s`, `768` branches, `223664` tail candidates checked
+  - reduced length `21` (`length 63`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): exceeded a `300s` cap
+  - reduced length `21` (`length 63`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=0`): exceeded a `300s` cap
 - the experimental contiguous-split MITM probe is complete on length `15` but not yet competitive at length `33`; keep it as a benchmark path, not a preferred search mode
 - the MITM benchmark now emits rough state-memory estimates; on the reduced length-`11` contiguous split, the stored half-state payload is already about `121 MB` before map/vector overhead, so use these estimates before starting long jobs
 
