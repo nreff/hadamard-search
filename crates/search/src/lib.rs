@@ -147,6 +147,7 @@ pub struct DirectCompressedPairProbeStats {
     pub norm_pruned: u64,
     pub autocorrelation_pruned: u64,
     pub spectral_pruned: u64,
+    pub tail_shift_pruned: u64,
     pub tail_spectral_pruned: u64,
     pub tail_residual_pruned: u64,
     pub tail_candidates_checked: u64,
@@ -261,6 +262,8 @@ struct DirectPairSpectralContext {
     twiddles: Vec<Vec<(f64, f64)>>,
 }
 
+const TAIL_SHIFT_FILTER_MAX: usize = 4;
+
 #[derive(Clone, Debug)]
 struct DirectTailContext {
     max_remaining: usize,
@@ -290,6 +293,39 @@ struct TailShiftOneSignature {
     internal_sum: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TailJoinSummary {
+    shift_one: TailShiftOneSignature,
+    small_shift: TailSmallShiftSignature,
+}
+
+#[derive(Clone, Debug)]
+struct RightShiftOneBoundaryBucket {
+    boundary: TailBoundarySignature,
+    by_internal: Vec<(i32, Vec<(u64, u64)>)>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RightShiftOneBuckets {
+    boundaries: Vec<RightShiftOneBoundaryBucket>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct TailSmallShiftSignature {
+    first_a: [i16; TAIL_SHIFT_FILTER_MAX],
+    first_b: [i16; TAIL_SHIFT_FILTER_MAX],
+    last_a: [i16; TAIL_SHIFT_FILTER_MAX],
+    last_b: [i16; TAIL_SHIFT_FILTER_MAX],
+    internal_sums: [i32; TAIL_SHIFT_FILTER_MAX],
+}
+
+#[derive(Clone, Debug)]
+struct NaturalPrefixShiftContext {
+    prefix_len: usize,
+    values_a: Vec<i16>,
+    values_b: Vec<i16>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PartialCompressedPairState {
     positions: Vec<usize>,
@@ -317,6 +353,98 @@ struct CompressedGenerationStats {
     row_sum_pruned: u64,
     spectral_pruned: u64,
     candidates_emitted: u64,
+}
+
+impl DirectTailContext {
+    const fn max_factorized_remaining() -> usize {
+        12
+    }
+}
+
+impl TailSmallShiftSignature {
+    fn build(a_values: &[i16], b_values: &[i16]) -> Self {
+        let mut signature = Self::default();
+        for slot in 0..TAIL_SHIFT_FILTER_MAX.min(a_values.len()) {
+            signature.first_a[slot] = a_values[slot];
+            signature.first_b[slot] = b_values[slot];
+            signature.last_a[slot] = a_values[a_values.len() - 1 - slot];
+            signature.last_b[slot] = b_values[a_values.len() - 1 - slot];
+        }
+        for shift in 1..=TAIL_SHIFT_FILTER_MAX.min(a_values.len().saturating_sub(1)) {
+            let mut total = 0_i32;
+            for index in 0..(a_values.len() - shift) {
+                total += i32::from(a_values[index]) * i32::from(a_values[index + shift])
+                    + i32::from(b_values[index]) * i32::from(b_values[index + shift]);
+            }
+            signature.internal_sums[shift - 1] = total;
+        }
+        signature
+    }
+}
+
+impl NaturalPrefixShiftContext {
+    fn build(a_assignments: &[Option<i16>], b_assignments: &[Option<i16>], prefix_len: usize) -> Self {
+        Self {
+            prefix_len,
+            values_a: a_assignments[..prefix_len]
+                .iter()
+                .map(|value| value.expect("prefix assignment"))
+                .collect(),
+            values_b: b_assignments[..prefix_len]
+                .iter()
+                .map(|value| value.expect("prefix assignment"))
+                .collect(),
+        }
+    }
+
+    fn small_shift_consistent(
+        &self,
+        left_sig: TailSmallShiftSignature,
+        left_len: usize,
+        right_sig: TailSmallShiftSignature,
+        right_len: usize,
+        factor: usize,
+    ) -> bool {
+        let order = self.prefix_len + left_len + right_len;
+        let max_shift = TAIL_SHIFT_FILTER_MAX.min(order.saturating_sub(1));
+        let target = -2 * factor as i32;
+        for shift in 2..=max_shift {
+            let total = internal_shift_from_values(&self.values_a, &self.values_b, shift)
+                + left_sig.internal_sums[shift - 1]
+                + right_sig.internal_sums[shift - 1]
+                + boundary_cross_sum(
+                    &self.values_a,
+                    &self.values_b,
+                    &left_sig.first_a,
+                    &left_sig.first_b,
+                    shift,
+                )
+                + boundary_cross_sum_reversed(
+                    &left_sig.last_a,
+                    &left_sig.last_b,
+                    &right_sig.first_a,
+                    &right_sig.first_b,
+                    left_len,
+                    right_len,
+                    shift,
+                )
+                + wrap_cross_sum(
+                    &right_sig.last_a,
+                    &right_sig.last_b,
+                    &self.values_a,
+                    &self.values_b,
+                    left_sig,
+                    left_len,
+                    self.prefix_len,
+                    shift,
+                );
+            if total != target {
+                return false;
+            }
+        }
+        true
+    }
+
 }
 
 pub fn run_legendre_search(
@@ -1344,7 +1472,12 @@ pub fn direct_compressed_pair_probe(
         total_squared_norm,
         spectral_frequency_count,
     );
-    let tail_context = build_direct_tail_context(&alphabet, tail_depth.min(order));
+    let tail_context = build_direct_tail_context(
+        &alphabet,
+        tail_depth
+            .min(order)
+            .min(DirectTailContext::max_factorized_remaining()),
+    );
     let mut stats = DirectCompressedPairProbeStats::default();
     let mut out = Vec::new();
     let mut a_assignments = vec![None; order];
@@ -1599,11 +1732,11 @@ fn direct_compressed_pair_probe_recursive(
                 b_assignments,
                 remaining_norms,
                 total_squared_norm,
-                spectral_context,
-                tail_context,
-                spectral_a,
-                spectral_b,
-                stats,
+            spectral_context,
+            tail_context,
+            spectral_a,
+            spectral_b,
+            stats,
                 out,
                 max_pairs,
             )?;
@@ -1930,11 +2063,20 @@ fn exact_factorized_tail_complete(
         return Ok(());
     }
     let mut spectral_cache = TailSpectralCache::default();
-    let mut left_shift_one_cache = HashMap::<(u64, u64), TailShiftOneSignature>::new();
-    let mut right_shift_one_cache = HashMap::<(u64, u64), TailShiftOneSignature>::new();
+    let mut left_tail_join_cache = HashMap::<(u64, u64), TailJoinSummary>::new();
+    let mut right_tail_join_cache = HashMap::<(u64, u64), TailJoinSummary>::new();
+    let mut decoded_left_a_cache = HashMap::<u64, Vec<i16>>::new();
+    let mut decoded_left_b_cache = HashMap::<u64, Vec<i16>>::new();
+    let mut decoded_right_a_cache = HashMap::<u64, Vec<i16>>::new();
+    let mut decoded_right_b_cache = HashMap::<u64, Vec<i16>>::new();
     let left_map = &tail_context.tails_by_len[left_len];
     let right_map = &tail_context.tails_by_len[right_len];
     let natural_positions = positions.iter().enumerate().all(|(slot, position)| *position == slot);
+    let natural_prefix_shift_context = if natural_positions && positions.len() >= 17 {
+        Some(NaturalPrefixShiftContext::build(a_assignments, b_assignments, index))
+    } else {
+        None
+    };
     let shift_one_context = if natural_positions {
         Some(build_factorized_shift_one_context(
             a_assignments,
@@ -1962,117 +2104,290 @@ fn exact_factorized_tail_complete(
             let Some(right_candidates) = right_map.get(&key) else {
                 continue;
             };
-            let right_shift_one_buckets = shift_one_context.as_ref().map(|_| {
-                build_right_shift_one_buckets(
-                    right_candidates,
-                    right_len,
-                    tail_context,
-                    &mut right_shift_one_cache,
-                )
-            });
             for (left_a, left_b) in left_candidates {
-                let left_shift_one_sig = shift_one_context.as_ref().map(|_| {
-                    cached_tail_shift_one_signature(
-                        &mut left_shift_one_cache,
-                        *left_a,
-                        *left_b,
-                        left_len,
-                        tail_context,
-                    )
-                });
-                let matching_right_candidates: Vec<(u64, u64)> = if let (Some(context), Some(sig), Some(buckets)) =
-                    (shift_one_context.as_ref(), left_shift_one_sig, right_shift_one_buckets.as_ref())
+                if out.len() >= max_pairs {
+                    break;
+                }
+                let left_summary = if shift_one_context.is_some()
+                    || natural_prefix_shift_context.is_some()
                 {
-                    right_candidates_for_shift_one(context, sig, buckets)
-                } else {
-                    right_candidates.to_vec()
-                };
-                for (right_a, right_b) in matching_right_candidates.iter() {
-                    if out.len() >= max_pairs {
-                        break;
-                    }
-                    stats.tail_candidates_checked += 1;
-                    if !factorized_tail_spectral_consistent(
-                        positions,
-                        index,
-                        left_len,
-                        right_len,
+                    Some(cached_tail_join_summary(
+                        &mut left_tail_join_cache,
                         *left_a,
                         *left_b,
-                        *right_a,
-                        *right_b,
-                        spectral_context,
-                        spectral_a,
-                        spectral_b,
+                        left_len,
                         tail_context,
-                        &mut spectral_cache,
-                    ) {
-                        stats.tail_spectral_pruned += 1;
-                        continue;
-                    }
-                    let combined = vec![(*left_a, *left_b), (*right_a, *right_b)];
-                    let mut stitched = Vec::with_capacity(remaining);
-                    for (a_code, b_code, len) in [
-                        (combined[0].0, combined[0].1, left_len),
-                        (combined[1].0, combined[1].1, right_len),
-                    ] {
-                        let a_tail = decode_tail_code(
-                            a_code,
-                            len,
-                            tail_context.base,
-                            &tail_context.alphabet,
+                    ))
+                } else {
+                    None
+                };
+                let left_shift_one_sig = left_summary.map(|summary| summary.shift_one);
+                let left_small_shift_sig = natural_prefix_shift_context
+                    .as_ref()
+                    .and(left_summary.map(|summary| summary.small_shift));
+                if let (Some(context), Some(shift_one_sig)) = (
+                    shift_one_context.as_ref(),
+                    left_shift_one_sig,
+                ) {
+                    let right_shift_one_buckets = build_right_shift_one_buckets(
+                        right_candidates,
+                        right_len,
+                        tail_context,
+                        &mut right_tail_join_cache,
+                    );
+                    for boundary_bucket in &right_shift_one_buckets.boundaries {
+                        if out.len() >= max_pairs {
+                            break;
+                        }
+                        let required_internal = required_right_shift_one_internal_sum(
+                            context,
+                            shift_one_sig,
+                            boundary_bucket.boundary,
                         );
-                        let b_tail = decode_tail_code(
-                            b_code,
-                            len,
-                            tail_context.base,
-                            &tail_context.alphabet,
+                        let Ok(internal_index) = boundary_bucket
+                            .by_internal
+                            .binary_search_by_key(&required_internal, |(internal_sum, _)| *internal_sum)
+                        else {
+                            continue;
+                        };
+                        let candidates = &boundary_bucket.by_internal[internal_index].1;
+                        for (right_a, right_b) in candidates {
+                            if out.len() >= max_pairs {
+                                break;
+                            }
+                            stats.tail_candidates_checked += 1;
+                            let right_small_shift_sig = cached_tail_join_summary(
+                                &mut right_tail_join_cache,
+                                *right_a,
+                                *right_b,
+                                right_len,
+                                tail_context,
+                            )
+                            .small_shift;
+                            if let Some(prefix_context) = natural_prefix_shift_context.as_ref() {
+                                if !prefix_context.small_shift_consistent(
+                                    left_small_shift_sig.expect("left small-shift signature"),
+                                    left_len,
+                                    right_small_shift_sig,
+                                    right_len,
+                                    factor,
+                                ) {
+                                    stats.tail_shift_pruned += 1;
+                                    continue;
+                                }
+                            }
+                            if !factorized_tail_spectral_consistent(
+                                positions,
+                                index,
+                                left_len,
+                                right_len,
+                                *left_a,
+                                *left_b,
+                                *right_a,
+                                *right_b,
+                                spectral_context,
+                                spectral_a,
+                                spectral_b,
+                                tail_context,
+                                &mut spectral_cache,
+                            ) {
+                                stats.tail_spectral_pruned += 1;
+                                continue;
+                            }
+                            let remaining = left_len + right_len;
+                            let left_a_tail = cached_decoded_tail(
+                                &mut decoded_left_a_cache,
+                                *left_a,
+                                left_len,
+                                tail_context,
+                            );
+                            let left_b_tail = cached_decoded_tail(
+                                &mut decoded_left_b_cache,
+                                *left_b,
+                                left_len,
+                                tail_context,
+                            );
+                            let right_a_tail = cached_decoded_tail(
+                                &mut decoded_right_a_cache,
+                                *right_a,
+                                right_len,
+                                tail_context,
+                            );
+                            let right_b_tail = cached_decoded_tail(
+                                &mut decoded_right_b_cache,
+                                *right_b,
+                                right_len,
+                                tail_context,
+                            );
+                            for offset in 0..left_len {
+                                let position = positions[index + offset];
+                                a_assignments[position] = Some(left_a_tail[offset]);
+                                b_assignments[position] = Some(left_b_tail[offset]);
+                            }
+                            for offset in 0..right_len {
+                                let position = positions[index + left_len + offset];
+                                a_assignments[position] = Some(right_a_tail[offset]);
+                                b_assignments[position] = Some(right_b_tail[offset]);
+                            }
+                            if !tail_exact_shift_consistent(a_assignments, b_assignments, factor) {
+                                stats.tail_residual_pruned += 1;
+                                for offset in 0..remaining {
+                                    let position = positions[index + offset];
+                                    a_assignments[position] = None;
+                                    b_assignments[position] = None;
+                                }
+                                continue;
+                            }
+                            if exact_compressed_legendre_residual_from_assignments(
+                                a_assignments,
+                                b_assignments,
+                                factor,
+                            ) == 0
+                            {
+                                let a = CompressedSequence::new(
+                                    factor,
+                                    a_assignments
+                                        .iter()
+                                        .map(|value| value.expect("full assignment"))
+                                        .collect(),
+                                )?;
+                                let b = CompressedSequence::new(
+                                    factor,
+                                    b_assignments
+                                        .iter()
+                                        .map(|value| value.expect("full assignment"))
+                                        .collect(),
+                                )?;
+                                out.push(DirectCompressedPair { a, b });
+                                stats.pairs_emitted += 1;
+                            } else {
+                                stats.tail_residual_pruned += 1;
+                            }
+                            for offset in 0..remaining {
+                                let position = positions[index + offset];
+                                a_assignments[position] = None;
+                                b_assignments[position] = None;
+                            }
+                        }
+                    }
+                } else {
+                    for (right_a, right_b) in right_candidates {
+                        if out.len() >= max_pairs {
+                            break;
+                        }
+                        stats.tail_candidates_checked += 1;
+                        let right_small_shift_sig = cached_tail_join_summary(
+                            &mut right_tail_join_cache,
+                            *right_a,
+                            *right_b,
+                            right_len,
+                            tail_context,
+                        )
+                        .small_shift;
+                        if let Some(prefix_context) = natural_prefix_shift_context.as_ref() {
+                            if !prefix_context.small_shift_consistent(
+                                left_small_shift_sig.expect("left small-shift signature"),
+                                left_len,
+                                right_small_shift_sig,
+                                right_len,
+                                factor,
+                            ) {
+                                stats.tail_shift_pruned += 1;
+                                continue;
+                            }
+                        }
+                        if !factorized_tail_spectral_consistent(
+                            positions,
+                            index,
+                            left_len,
+                            right_len,
+                            *left_a,
+                            *left_b,
+                            *right_a,
+                            *right_b,
+                            spectral_context,
+                            spectral_a,
+                            spectral_b,
+                            tail_context,
+                            &mut spectral_cache,
+                        ) {
+                            stats.tail_spectral_pruned += 1;
+                            continue;
+                        }
+                        let remaining = left_len + right_len;
+                        let left_a_tail = cached_decoded_tail(
+                            &mut decoded_left_a_cache,
+                            *left_a,
+                            left_len,
+                            tail_context,
                         );
-                        stitched.extend(a_tail.into_iter().zip(b_tail.into_iter()));
-                    }
-                    for (offset, (a_value, b_value)) in stitched.iter().enumerate() {
-                        let position = positions[index + offset];
-                        a_assignments[position] = Some(*a_value);
-                        b_assignments[position] = Some(*b_value);
-                    }
-                    if !tail_exact_shift_consistent(a_assignments, b_assignments, factor) {
-                        stats.tail_residual_pruned += 1;
+                        let left_b_tail = cached_decoded_tail(
+                            &mut decoded_left_b_cache,
+                            *left_b,
+                            left_len,
+                            tail_context,
+                        );
+                        let right_a_tail = cached_decoded_tail(
+                            &mut decoded_right_a_cache,
+                            *right_a,
+                            right_len,
+                            tail_context,
+                        );
+                        let right_b_tail = cached_decoded_tail(
+                            &mut decoded_right_b_cache,
+                            *right_b,
+                            right_len,
+                            tail_context,
+                        );
+                        for offset in 0..left_len {
+                            let position = positions[index + offset];
+                            a_assignments[position] = Some(left_a_tail[offset]);
+                            b_assignments[position] = Some(left_b_tail[offset]);
+                        }
+                        for offset in 0..right_len {
+                            let position = positions[index + left_len + offset];
+                            a_assignments[position] = Some(right_a_tail[offset]);
+                            b_assignments[position] = Some(right_b_tail[offset]);
+                        }
+                        if !tail_exact_shift_consistent(a_assignments, b_assignments, factor) {
+                            stats.tail_residual_pruned += 1;
+                            for offset in 0..remaining {
+                                let position = positions[index + offset];
+                                a_assignments[position] = None;
+                                b_assignments[position] = None;
+                            }
+                            continue;
+                        }
+                        if exact_compressed_legendre_residual_from_assignments(
+                            a_assignments,
+                            b_assignments,
+                            factor,
+                        ) == 0
+                        {
+                            let a = CompressedSequence::new(
+                                factor,
+                                a_assignments
+                                    .iter()
+                                    .map(|value| value.expect("full assignment"))
+                                    .collect(),
+                            )?;
+                            let b = CompressedSequence::new(
+                                factor,
+                                b_assignments
+                                    .iter()
+                                    .map(|value| value.expect("full assignment"))
+                                    .collect(),
+                            )?;
+                            out.push(DirectCompressedPair { a, b });
+                            stats.pairs_emitted += 1;
+                        } else {
+                            stats.tail_residual_pruned += 1;
+                        }
                         for offset in 0..remaining {
                             let position = positions[index + offset];
                             a_assignments[position] = None;
                             b_assignments[position] = None;
                         }
-                        continue;
-                    }
-                    if exact_compressed_legendre_residual_from_assignments(
-                        a_assignments,
-                        b_assignments,
-                        factor,
-                    ) == 0
-                    {
-                        let a = CompressedSequence::new(
-                            factor,
-                            a_assignments
-                                .iter()
-                                .map(|value| value.expect("full assignment"))
-                                .collect(),
-                        )?;
-                        let b = CompressedSequence::new(
-                            factor,
-                            b_assignments
-                                .iter()
-                                .map(|value| value.expect("full assignment"))
-                                .collect(),
-                        )?;
-                        out.push(DirectCompressedPair { a, b });
-                        stats.pairs_emitted += 1;
-                    } else {
-                        stats.tail_residual_pruned += 1;
-                    }
-                    for offset in 0..remaining {
-                        let position = positions[index + offset];
-                        a_assignments[position] = None;
-                        b_assignments[position] = None;
                     }
                 }
             }
@@ -2160,30 +2475,43 @@ fn build_factorized_shift_one_context(
     }
 }
 
-fn cached_tail_shift_one_signature(
-    cache: &mut HashMap<(u64, u64), TailShiftOneSignature>,
+fn cached_tail_join_summary(
+    cache: &mut HashMap<(u64, u64), TailJoinSummary>,
     a_code: u64,
     b_code: u64,
     length: usize,
     tail_context: &DirectTailContext,
-) -> TailShiftOneSignature {
+) -> TailJoinSummary {
     *cache.entry((a_code, b_code)).or_insert_with(|| {
-        let a_values = decode_tail_code(a_code, length, tail_context.base, &tail_context.alphabet);
-        let b_values = decode_tail_code(b_code, length, tail_context.base, &tail_context.alphabet);
+        let mut a_values = vec![0_i16; length];
+        let mut b_values = vec![0_i16; length];
+        let mut a_current = a_code;
+        let mut b_current = b_code;
+        for index in (0..length).rev() {
+            let a_digit = usize::try_from(a_current % tail_context.base).expect("tail digit fits usize");
+            let b_digit = usize::try_from(b_current % tail_context.base).expect("tail digit fits usize");
+            a_values[index] = tail_context.alphabet[a_digit];
+            b_values[index] = tail_context.alphabet[b_digit];
+            a_current /= tail_context.base;
+            b_current /= tail_context.base;
+        }
         let mut internal_sum = 0_i32;
         for slot in 0..length.saturating_sub(1) {
             internal_sum +=
                 i32::from(a_values[slot]) * i32::from(a_values[slot + 1])
                     + i32::from(b_values[slot]) * i32::from(b_values[slot + 1]);
         }
-        TailShiftOneSignature {
-            boundary: TailBoundarySignature {
-                first_a: a_values[0],
-                first_b: b_values[0],
-                last_a: a_values[length - 1],
-                last_b: b_values[length - 1],
+        TailJoinSummary {
+            shift_one: TailShiftOneSignature {
+                boundary: TailBoundarySignature {
+                    first_a: a_values[0],
+                    first_b: b_values[0],
+                    last_a: a_values[length - 1],
+                    last_b: b_values[length - 1],
+                },
+                internal_sum,
             },
-            internal_sum,
+            small_shift: TailSmallShiftSignature::build(&a_values, &b_values),
         }
     })
 }
@@ -2192,52 +2520,174 @@ fn build_right_shift_one_buckets(
     right_candidates: &[(u64, u64)],
     right_len: usize,
     tail_context: &DirectTailContext,
-    cache: &mut HashMap<(u64, u64), TailShiftOneSignature>,
-) -> HashMap<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>> {
-    let mut buckets = HashMap::<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>>::new();
+    join_summary_cache: &mut HashMap<(u64, u64), TailJoinSummary>,
+) -> RightShiftOneBuckets {
+    let boundary_slot_count = usize::try_from(
+        tail_context.base * tail_context.base * tail_context.base * tail_context.base,
+    )
+    .expect("boundary slot count fits usize");
+    let mut boundary_slots = vec![None; boundary_slot_count];
+    let mut boundaries = Vec::<RightShiftOneBoundaryBucket>::new();
     for (right_a, right_b) in right_candidates {
-        let sig =
-            cached_tail_shift_one_signature(cache, *right_a, *right_b, right_len, tail_context);
-        buckets
-            .entry(sig.boundary)
-            .or_default()
-            .entry(sig.internal_sum)
-            .or_default()
-            .push((*right_a, *right_b));
-    }
-    buckets
-}
-
-fn right_candidates_for_shift_one(
-    context: &FactorizedShiftOneContext,
-    left_sig: TailShiftOneSignature,
-    right_buckets: &HashMap<TailBoundarySignature, HashMap<i32, Vec<(u64, u64)>>>,
-) -> Vec<(u64, u64)> {
-    let mut out = Vec::new();
-    for (boundary, internal_map) in right_buckets {
-        let required_internal = if context.has_prefix {
-            context.target
-                - context.prefix_internal
-                - (i32::from(context.prefix_last_a) * i32::from(left_sig.boundary.first_a)
-                    + i32::from(context.prefix_last_b) * i32::from(left_sig.boundary.first_b))
-                - left_sig.internal_sum
-                - (i32::from(left_sig.boundary.last_a) * i32::from(boundary.first_a)
-                    + i32::from(left_sig.boundary.last_b) * i32::from(boundary.first_b))
-                - (i32::from(boundary.last_a) * i32::from(context.prefix_first_a)
-                    + i32::from(boundary.last_b) * i32::from(context.prefix_first_b))
+        let sig = cached_tail_join_summary(
+            join_summary_cache,
+            *right_a,
+            *right_b,
+            right_len,
+            tail_context,
+        )
+        .shift_one;
+        let boundary_key = encode_tail_boundary_signature(sig.boundary, tail_context);
+        let bucket_index = *boundary_slots[boundary_key].get_or_insert_with(|| {
+            boundaries.push(RightShiftOneBoundaryBucket {
+                boundary: sig.boundary,
+                by_internal: Vec::new(),
+            });
+            boundaries.len() - 1
+        });
+        let internal_buckets = &mut boundaries[bucket_index].by_internal;
+        if let Some((_, candidates)) = internal_buckets
+            .iter_mut()
+            .find(|(internal_sum, _)| *internal_sum == sig.internal_sum)
+        {
+            candidates.push((*right_a, *right_b));
         } else {
-            context.target
-                - left_sig.internal_sum
-                - (i32::from(left_sig.boundary.last_a) * i32::from(boundary.first_a)
-                    + i32::from(left_sig.boundary.last_b) * i32::from(boundary.first_b))
-                - (i32::from(boundary.last_a) * i32::from(left_sig.boundary.first_a)
-                    + i32::from(boundary.last_b) * i32::from(left_sig.boundary.first_b))
-        };
-        if let Some(candidates) = internal_map.get(&required_internal) {
-            out.extend(candidates.iter().copied());
+            internal_buckets.push((sig.internal_sum, vec![(*right_a, *right_b)]));
         }
     }
-    out
+    for boundary_bucket in &mut boundaries {
+        boundary_bucket
+            .by_internal
+            .sort_unstable_by_key(|(internal_sum, _)| *internal_sum);
+    }
+    RightShiftOneBuckets { boundaries }
+}
+
+fn encode_tail_boundary_signature(
+    boundary: TailBoundarySignature,
+    tail_context: &DirectTailContext,
+) -> usize {
+    let base = usize::try_from(tail_context.base).expect("tail base fits usize");
+    let first_a = tail_context
+        .alphabet
+        .iter()
+        .position(|value| *value == boundary.first_a)
+        .expect("boundary symbol in alphabet");
+    let first_b = tail_context
+        .alphabet
+        .iter()
+        .position(|value| *value == boundary.first_b)
+        .expect("boundary symbol in alphabet");
+    let last_a = tail_context
+        .alphabet
+        .iter()
+        .position(|value| *value == boundary.last_a)
+        .expect("boundary symbol in alphabet");
+    let last_b = tail_context
+        .alphabet
+        .iter()
+        .position(|value| *value == boundary.last_b)
+        .expect("boundary symbol in alphabet");
+    (((first_a * base) + first_b) * base + last_a) * base + last_b
+}
+
+fn required_right_shift_one_internal_sum(
+    context: &FactorizedShiftOneContext,
+    left_sig: TailShiftOneSignature,
+    right_boundary: TailBoundarySignature,
+) -> i32 {
+    if context.has_prefix {
+        context.target
+            - context.prefix_internal
+            - (i32::from(context.prefix_last_a) * i32::from(left_sig.boundary.first_a)
+                + i32::from(context.prefix_last_b) * i32::from(left_sig.boundary.first_b))
+            - left_sig.internal_sum
+            - (i32::from(left_sig.boundary.last_a) * i32::from(right_boundary.first_a)
+                + i32::from(left_sig.boundary.last_b) * i32::from(right_boundary.first_b))
+            - (i32::from(right_boundary.last_a) * i32::from(context.prefix_first_a)
+                + i32::from(right_boundary.last_b) * i32::from(context.prefix_first_b))
+    } else {
+        context.target
+            - left_sig.internal_sum
+            - (i32::from(left_sig.boundary.last_a) * i32::from(right_boundary.first_a)
+                + i32::from(left_sig.boundary.last_b) * i32::from(right_boundary.first_b))
+            - (i32::from(right_boundary.last_a) * i32::from(left_sig.boundary.first_a)
+                + i32::from(right_boundary.last_b) * i32::from(left_sig.boundary.first_b))
+    }
+}
+
+fn internal_shift_from_values(a_values: &[i16], b_values: &[i16], shift: usize) -> i32 {
+    if a_values.len() <= shift {
+        return 0;
+    }
+    let mut total = 0_i32;
+    for index in 0..(a_values.len() - shift) {
+        total += i32::from(a_values[index]) * i32::from(a_values[index + shift])
+            + i32::from(b_values[index]) * i32::from(b_values[index + shift]);
+    }
+    total
+}
+
+fn boundary_cross_sum(
+    left_a: &[i16],
+    left_b: &[i16],
+    right_first_a: &[i16; TAIL_SHIFT_FILTER_MAX],
+    right_first_b: &[i16; TAIL_SHIFT_FILTER_MAX],
+    shift: usize,
+) -> i32 {
+    let count = shift.min(left_a.len()).min(TAIL_SHIFT_FILTER_MAX);
+    let mut total = 0_i32;
+    for step in 0..count {
+        let left_index = left_a.len() - count + step;
+        total += i32::from(left_a[left_index]) * i32::from(right_first_a[step])
+            + i32::from(left_b[left_index]) * i32::from(right_first_b[step]);
+    }
+    total
+}
+
+fn boundary_cross_sum_reversed(
+    left_last_a: &[i16; TAIL_SHIFT_FILTER_MAX],
+    left_last_b: &[i16; TAIL_SHIFT_FILTER_MAX],
+    right_first_a: &[i16; TAIL_SHIFT_FILTER_MAX],
+    right_first_b: &[i16; TAIL_SHIFT_FILTER_MAX],
+    left_len: usize,
+    right_len: usize,
+    shift: usize,
+) -> i32 {
+    let count = shift.min(left_len).min(right_len).min(TAIL_SHIFT_FILTER_MAX);
+    let mut total = 0_i32;
+    for step in 0..count {
+        let left_offset_from_end = count - 1 - step;
+        total += i32::from(left_last_a[left_offset_from_end]) * i32::from(right_first_a[step])
+            + i32::from(left_last_b[left_offset_from_end]) * i32::from(right_first_b[step]);
+    }
+    total
+}
+
+fn wrap_cross_sum(
+    right_last_a: &[i16; TAIL_SHIFT_FILTER_MAX],
+    right_last_b: &[i16; TAIL_SHIFT_FILTER_MAX],
+    prefix_a: &[i16],
+    prefix_b: &[i16],
+    left_sig: TailSmallShiftSignature,
+    left_len: usize,
+    prefix_len: usize,
+    shift: usize,
+) -> i32 {
+    let prefix_cross = shift.min(prefix_len).min(TAIL_SHIFT_FILTER_MAX);
+    let spill = shift.saturating_sub(prefix_len).min(left_len).min(TAIL_SHIFT_FILTER_MAX.saturating_sub(prefix_cross));
+    let mut total = 0_i32;
+    for step in 0..prefix_cross {
+        let right_offset_from_end = prefix_cross + spill - 1 - step;
+        total += i32::from(right_last_a[right_offset_from_end]) * i32::from(prefix_a[step])
+            + i32::from(right_last_b[right_offset_from_end]) * i32::from(prefix_b[step]);
+    }
+    for step in 0..spill {
+        let right_offset_from_end = spill - 1 - step;
+        total += i32::from(right_last_a[right_offset_from_end]) * i32::from(left_sig.first_a[step])
+            + i32::from(right_last_b[right_offset_from_end]) * i32::from(left_sig.first_b[step]);
+    }
+    total
 }
 
 fn factorized_tail_spectral_consistent(
@@ -2333,6 +2783,18 @@ fn cached_tail_segment_spectral(
             }
             accumulators
         })
+        .clone()
+}
+
+fn cached_decoded_tail(
+    cache: &mut HashMap<u64, Vec<i16>>,
+    code: u64,
+    length: usize,
+    tail_context: &DirectTailContext,
+) -> Vec<i16> {
+    cache
+        .entry(code)
+        .or_insert_with(|| decode_tail_code(code, length, tail_context.base, &tail_context.alphabet))
         .clone()
 }
 

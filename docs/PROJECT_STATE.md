@@ -62,9 +62,12 @@ Current state:
 - factorized exact-tail lookup can eliminate branching entirely on the reduced length-`11` benchmark, but then exact tail-candidate volume becomes the new bottleneck
 - the current direct tail path now carries separate per-side norm keys, which cuts reduced length-`11` checked tails from about `996k` to about `125k`, though with extra overhead on that small benchmark
 - the factorized tail join now also uses an exact shift-`1` seam filter in the natural-order suffix case, cutting reduced length-`11` to `8399` checked tails and the best reduced length-`15` anchor to `129335` checked tails
-- the current best reduced length-`15` direct-joint anchor is now `length 45`, factor `3`, tail depth `12`, `spectral_frequencies=1`: `48` branches and `14.13` seconds to the first pair
+- the current best reduced length-`15` direct-joint anchor is now `length 45`, factor `3`, tail depth `12`, `spectral_frequencies=1`: `48` branches and `12.60` seconds to the first pair
 - the next measured anchor is now reduced length `17` (`length 51`, factor `3`, tail depth `12`, `spectral_frequencies=1`): `223664` checked tails and `103.67` seconds to the first pair
-- reduced length `17` is slightly faster with `spectral_frequencies=0` than with `1`, while reduced length `21` (`length 63`, factor `3`) still exceeds a `5`-minute cap with either setting
+- reduced length `17` is slightly faster with `spectral_frequencies=0` than with `1`
+- an exact tail-side small-shift prefilter for shifts `2..4` is now enabled only for reduced lengths `>= 17`; it is a modest win at reduced length `17` (`95.87s` versus `97.27s`) but not at reduced length `15`
+- a direct-indexed packed shift-`1` seam-bucket representation plus unified tail-summary caching now trims join overhead further without changing the search counts, improving the reduced length-`17`, `K=0` anchor to a best measured `79.28s`
+- reduced length `21` (`length 63`, factor `3`) still exceeds a `5`-minute cap with the current best tail-depth-`12`, `spectral_frequencies=0` regime
 - exact small known cases are validated end to end
 
 Current known-case ladder:
@@ -215,10 +218,15 @@ uv run python py/validate_matrix.py fixtures/known/hadamard-small/order28.txt
 
 Highest-value next steps:
 
-1. Optimize the exact-tail regime for candidate volume, not just branch count; factorized depth `11` already collapses branching but still checks about `1e6` exact tails on the reduced length-`11` benchmark.
-2. Extend the pair-PSD idea only if it still improves the reduced length-`11` benchmark alongside the tail oracle.
-3. Reduce the reduced length-`17` anchor from its current `103.67s` / `223664`-tail baseline before making stronger scaling claims.
-4. Keep using benchmarked branch/state estimates before any long run, especially for MITM-style experiments whose memory cost can dominate quickly.
+1. Shift the roadmap from search engineering toward algebraic sieves; the strongest next bets are multiplier constraints and exact CRT-derived structure for `333 = 9 * 37`.
+2. Work out the LP identity explicitly over `Z_9 x Z_37` and determine what exact necessary conditions valid length-`333` pairs induce on the `9` and `37` components before committing to more code.
+3. Investigate whether any nontrivial multiplier subgroup or automorphism normalization is available for LP(333); even a modest exact orbit constraint could change the search geometry more than another local prune.
+4. If the algebraic sieve line does not produce a practical exact filter, then try a genuinely different exact-tail factorization such as `4+4+4`, not another refinement of the current `6+6` join.
+5. Keep using benchmarked time/state estimates before any long run, especially for MITM-style experiments whose memory cost can dominate quickly.
+
+Focused note:
+
+- see [docs/research/crt-multiplier-roadmap.md](/home/nate/projects/hadamard/docs/research/crt-multiplier-roadmap.md) for the current algebraic-sieve-first plan
 
 ## How To Read The Repo
 

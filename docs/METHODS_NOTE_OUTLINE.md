@@ -124,7 +124,8 @@ Use the verified reduced length-`11` progression:
 - depth `6`: `1360`
 - factorized depth `7`: `272`
 - factorized depth `8`: `64`
-- factorized depth `11`: `0` branches, `996305` tail candidates, `996304` tail spectral prunes, `11.80s`
+- factorized depth `11`, historical combined-norm key: `0` branches, `996305` tail candidates, `996304` tail spectral prunes, `11.80s`
+- factorized depth `11`, current shift-`1` seam-aware join with `K=1`: `0` branches, `8399` tail candidates, `5789` tail spectral prunes, `2609` tail residual prunes, `9.77s`
 
 ## 6. Negative Results and Design Rejections
 
@@ -140,6 +141,8 @@ Include:
 - parity MITM
 - parity even-shift signatures
 - generator-`2` ordering
+- shift-`2` seam key attempt
+- exact small-shift tail prefilter as a modest improvement rather than a breakthrough
 
 Why this section matters:
 
@@ -169,11 +172,13 @@ Structure:
 - exact known-case validation
 - production compressed/decompression baseline at length `15`, factor `3`
 - direct-joint benchmark at reduced length `11`
-- next anchor at reduced length `15`
+- next anchors at reduced lengths `15`, `17`, and `21`
 
-Safe current statement for the last item:
+Safe current statement for the last items:
 
-- the `length=45`, `compression=3`, `tail_depth=11` direct-joint benchmark now completes in `158.94s`, with only `160` branches but about `96.1` million tail candidates checked
+- reduced length `15` (`length=45`, `compression=3`, `tail_depth=12`, shift-`1` seam-aware join, `K=1`) completes in `14.13s`, with `48` branches and `129335` checked tail candidates
+- reduced length `17` (`length=51`, `compression=3`, `tail_depth=12`, shift-`1` seam-aware join, `K=0`, plus the larger-instance-only exact small-shift filter) completes in `95.87s`, with `768` branches and `223670` checked tail candidates
+- reduced length `21` (`length=63`, `compression=3`, `tail_depth=12`, `K=0`) still exceeds a `300s` cap
 - this strengthens the main interpretation: the next barrier is tail-candidate multiplicity, not branching
 
 Do not pad this section with speculative extrapolation to `333`.
@@ -196,9 +201,11 @@ This is where to say:
 
 Be explicit:
 
-- scaling to reduced length `15` is not yet routine
+- reduced length `15` is now routine as a timing anchor, but not yet as a full campaign-scale regime
+- reduced length `17` is now practical but still expensive
+- reduced length `21` remains beyond a `300s` timing cap in the current best regime
 - production compressed search still blows up too early
-- current evidence is strongest on reduced lengths `11` and `15`, but only as `max_pairs=1` timing anchors rather than full campaign-scale evidence
+- current evidence is strongest on reduced lengths `11`, `15`, and `17`, but only as `max_pairs=1` timing anchors rather than full campaign-scale evidence
 - no claim of asymptotic superiority
 - no claim that the method will reach `333` unchanged
 
@@ -209,12 +216,13 @@ These should mirror the code reality:
 1. stronger exact tail keys
 2. factorized tail representations with lower candidate multiplicity
 3. cheaper exact tail-side filters
-4. making reduced length `15` substantially cheaper than the current `158.94s` / `96.1M`-candidate anchor
+4. moving reduced length `21` under the current `300s` cap without sacrificing correctness or turning the method into a one-off heuristic
 
 Avoid weaker directions:
 
 - more search-order experiments
 - naive new MITM splits without correlation-aware invariants
+- more tail-depth tuning by itself
 
 ## 12. Reproducibility Appendix
 
@@ -232,8 +240,10 @@ Recommended command block:
 
 ```bash
 cargo test
-cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1
-timeout 300s cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 4 --tail-depth 11 --max-pairs 1
+cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 11 --max-pairs 1
+cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 12 --max-pairs 1
+cargo run -p hadamard-cli -- benchmark compressed-pairs --length 51 --compression 3 --ordering natural --spectral-frequencies 0 --tail-depth 12 --max-pairs 1
+timeout 300s cargo run -p hadamard-cli -- benchmark compressed-pairs --length 63 --compression 3 --ordering natural --spectral-frequencies 0 --tail-depth 12 --max-pairs 1
 ```
 
 ## Data And Figure Checklist
@@ -251,5 +261,6 @@ Before drafting the full note, gather:
 If this methods note were written now, the central thesis should be:
 
 - exact-tail completion in joint compressed Legendre-pair search can qualitatively change the search regime on meaningful reduced instances, and this is more important than further local pruning of ordinary DFS branches
+- the current best evidence for that claim is the shift from branch-dominated search to exact-tail-key-dominated search on reduced lengths `11`, `15`, and `17`
 
 That is the strongest claim the current evidence can support cleanly.

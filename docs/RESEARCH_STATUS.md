@@ -13,7 +13,7 @@ If this progresses toward a formal write-up, the paper-style skeleton now lives 
 
 ## Verification Stamp
 
-Last re-checked on `2026-03-13`.
+Last re-checked on `2026-03-14`.
 
 Verified during this audit:
 
@@ -178,6 +178,26 @@ Reduced-length-`15` anchors with the same method family:
   - `57612` tail residual prunes
   - `1` emitted pair
   - `14.13` seconds
+- current packed shift-1 seam-bucket join, tail depth `12`, `1` monitored frequency:
+  - reduced length `15`
+  - search counts unchanged in practice
+  - `12.60` seconds
+- current shift-1 seam-aware join, tail depth `12`, `0` monitored frequencies, plus the larger-instance-only exact small-shift tail filter:
+  - reduced length `17`
+  - `768` branches
+  - `223670` tail candidates checked
+  - `223531` tail shift prunes
+  - `138` tail residual prunes
+  - `1` emitted pair
+  - `95.87` seconds
+- current packed shift-1 seam-bucket join with the same `K=0` regime:
+  - reduced length `17`
+  - search counts unchanged in practice
+  - timed reruns now reach `85.86` seconds
+- current packed shift-1 seam-bucket join plus unified tail-summary caching:
+  - reduced length `17`
+  - search counts unchanged in practice
+  - timed reruns now reach a best measured `79.28` seconds
 
 Interpretation:
 
@@ -193,6 +213,14 @@ Interpretation:
   - it reduces checked tails sharply on reduced length `11`, but increases runtime there because of extra bookkeeping
   - it helps more on reduced length `15`, where the best current anchor is now tail depth `12` at `151.08s`
 - the shift-`1` seam filter is the first follow-up that changes the reduced length-`15` anchor qualitatively again, bringing it down to about `14` seconds
+- the newer exact small-shift tail filter is much weaker:
+  - it is not worth using at reduced length `15`
+  - it is only a modest win at reduced length `17`
+  - it does not yet move reduced length `21` under a `300s` cap
+- the newer packed shift-`1` seam-bucket layout is a cleaner implementation improvement:
+  - it preserves the search counts
+  - it lowers runtime in the current best exact-tail regime
+  - it still does not move reduced length `21` under a `300s` cap
 
 This is the clearest evidence that the research direction has genuinely shifted shape.
 
@@ -329,16 +357,26 @@ MITM line:
 
 The best next questions are:
 
-1. Can tail keys be strengthened without destroying completeness?
-2. Can the factorized tail representation be refined so candidate multiplicity drops sharply per key?
-3. Can a tail-side exact filter be made significantly cheaper than full residual checking while preserving the current large pruning rate?
-4. Can the reduced-length-`15` anchor be made routine enough to serve as the new benchmark floor?
+1. What exact necessary conditions does the LP identity impose after the CRT decomposition `Z_333 ~= Z_9 x Z_37`?
+2. Does LP(333) admit any nontrivial multiplier or automorphism action that can be turned into a hard search-space normalization or sieve?
+3. Can product-group Fourier structure over `Z_9 x Z_37` expose sharper exact or near-exact invariants than the current undifferentiated PSD view over `Z_333`?
+4. Can the polynomial identity `A(x)A(x^-1) + B(x)B(x^-1)` be turned into a practical propagation engine or SAT/CAS side-constraint rather than only a residual check?
+5. If none of the algebraic-sieve lines pay off, what genuinely different exact factorization lowers multiplicity better than the current `6+6` tail join?
 
 Questions that currently look less attractive:
 
 - another DFS ordering experiment
 - another naive MITM split
+- another cache layer or symmetric handling tweak on the current `6+6` join
 - broadening spectral checks without evidence they improve the reduced-length-`11` frontier
+
+Lower-priority speculative direction:
+
+- learn statistical regularities from known smaller Legendre pairs only after the exact algebraic lines above are better understood
+
+Focused working note:
+
+- [docs/research/crt-multiplier-roadmap.md](/home/nate/projects/hadamard/docs/research/crt-multiplier-roadmap.md)
 
 ## Long-Run Policy
 

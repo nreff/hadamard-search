@@ -316,6 +316,7 @@ fn cmd_benchmark_compressed_pairs(args: Vec<String>) -> Result<(), String> {
     println!("ordering={}", ordering.as_str());
     println!("spectral_frequency_count={spectral_frequency_count}");
     println!("tail_depth={tail_depth}");
+    println!("effective_tail_depth={}", tail_depth.min(reduced_length).min(12));
     println!("row_sum_target={row_sum}");
     println!("max_pairs={max_pairs}");
     println!("branches_considered={}", outcome.stats.branches_considered);
@@ -326,6 +327,7 @@ fn cmd_benchmark_compressed_pairs(args: Vec<String>) -> Result<(), String> {
         outcome.stats.autocorrelation_pruned
     );
     println!("spectral_pruned={}", outcome.stats.spectral_pruned);
+    println!("tail_shift_pruned={}", outcome.stats.tail_shift_pruned);
     println!(
         "tail_spectral_pruned={}",
         outcome.stats.tail_spectral_pruned

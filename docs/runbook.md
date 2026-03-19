@@ -82,13 +82,20 @@ Current baseline:
   - reduced length `15`, tail depth `12`, `K=0`: `14.29s`, `129337` checked tails
   - reduced length `17`, tail depth `12`, `K=1`: `103.67s`, `223664` checked tails
   - reduced length `17`, tail depth `12`, `K=0`: `97.27s`, `223676` checked tails
+- exact small-shift tail prefilter in the seam-aware regime:
+  - the direct probe now reports `effective_tail_depth`, because the exact factorized tail path is only exact through depth `12`
+  - reduced length `15`, tail depth `12`, `K=1`: the new `shift 2..4` prefilter is worse and is therefore disabled on this size (`16.11s`, `tail_shift_pruned=0`)
+  - reduced length `17`, tail depth `12`, `K=0`: the same prefilter is enabled and is a modest win (`95.87s`, `tail_shift_pruned=223531`)
 - staged timing anchor beyond reduced length `11`:
   - reduced length `15` (`length 45`, factor `3`, tail depth `11`, combined norm key): `158.94s`, `160` branches, `96096005` tail candidates checked
   - reduced length `15` (`length 45`, factor `3`, tail depth `12`, separate per-side norm key): `151.08s`, `48` branches, `90668636` tail candidates checked
   - reduced length `15` (`length 45`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): `14.13s`, `48` branches, `129335` tail candidates checked
   - reduced length `17` (`length 51`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): `103.67s`, `768` branches, `223664` tail candidates checked
+  - reduced length `17` (`length 51`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=0`, plus the new exact small-shift tail filter): `95.87s`, `768` branches, `223670` tail candidates checked
   - reduced length `21` (`length 63`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=1`): exceeded a `300s` cap
   - reduced length `21` (`length 63`, factor `3`, tail depth `12`, shift-1 seam-aware join, `K=0`): exceeded a `300s` cap
+  - reduced length `21` (`length 63`, factor `3`, tail depth `11` or `13`, `K=0`): also exceeded a `300s` cap
+  - reduced length `21` (`length 63`, factor `3`, tail depth `12`, `K=0`, with the new exact small-shift tail filter): still exceeded a `300s` cap
 - the experimental contiguous-split MITM probe is complete on length `15` but not yet competitive at length `33`; keep it as a benchmark path, not a preferred search mode
 - the MITM benchmark now emits rough state-memory estimates; on the reduced length-`11` contiguous split, the stored half-state payload is already about `121 MB` before map/vector overhead, so use these estimates before starting long jobs
 
