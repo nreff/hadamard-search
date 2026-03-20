@@ -4,6 +4,36 @@ This file records implementation directions that were tried, measured, and then 
 
 ## Compressed LP search
 
+### Rejected in default analyzer: naive exact row-shift lift above the CRT row-bundle sieve
+
+Attempt:
+- extend `hadamard analyze lp333-crt` to lift the heaviest surviving bundled pair orbit through exact row shifts `1, 2, 4`
+
+Why it looked promising:
+- the CRT row-bundle sieve had already reduced the residual problem to
+  - `504` bundled exact pairs
+  - `90` active bundled states
+  - `168` active bundled pair orbits
+- that looked small enough to try an exact lift directly
+
+Why it was rejected:
+- even the single heaviest surviving bundled pair orbit
+  - `[-15, 3, 13] | [-5, 3, 3]`
+  still sits on raw exact lift space about `1.4545e18`
+- the naive distribution build was too slow to keep inside the default analysis path
+
+What was learned instead:
+- the natural `UV -> W` transition state for that same orbit is only about
+  - `1,110,187` signatures on the left
+  - `1,164,237` signatures on the right
+- that is small enough to keep the orbit-level exact-lift idea alive
+- however, the coefficient-only transition signature count is the same as the full transition count on that top orbit, so a trivial coefficient-only collapse is not the next win
+
+Outcome:
+- reverted from the main analyzer path
+- kept the CRT analyzer fast
+- treat optimized orbit-level row-shift lifting as the next serious implementation target
+
 ### Rejected: independent compressed dihedral canonicalization
 
 Attempt:

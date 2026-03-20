@@ -70,8 +70,9 @@ The best outcome would be a true orbit reduction. Even a weaker outcome, such as
 
 1. Add a small analysis utility that can inspect compressed or exact candidates by CRT component rather than only by cyclic order.
 2. Add a way to summarize frequency families by `(freq mod 9, freq mod 37)` instead of a flat frequency index.
-3. If the paper derivation yields a candidate sieve, implement it first as a cheap verifier on full assignments before trying to push it into the recursive search.
-4. Only move a CRT or multiplier condition into the hot search path after it is proven exact and benchmarked on reduced anchors.
+3. Build a dedicated solver for the exact row-sum and column-sum marginal problems rather than relying on the current generic `compression 37` / `compression 9` benchmark path.
+4. If the paper derivation yields a candidate sieve, implement it first as a cheap verifier on full assignments before trying to push it into the recursive search.
+5. Only move a CRT or multiplier condition into the hot search path after it is proven exact and benchmarked on reduced anchors.
 
 ## What Not To Do Next
 

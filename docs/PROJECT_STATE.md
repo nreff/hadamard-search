@@ -68,6 +68,16 @@ Current state:
 - an exact tail-side small-shift prefilter for shifts `2..4` is now enabled only for reduced lengths `>= 17`; it is a modest win at reduced length `17` (`95.87s` versus `97.27s`) but not at reduced length `15`
 - a direct-indexed packed shift-`1` seam-bucket representation plus unified tail-summary caching now trims join overhead further without changing the search counts, improving the reduced length-`17`, `K=0` anchor to a best measured `79.28s`
 - reduced length `21` (`length 63`, factor `3`) still exceeds a `5`-minute cap with the current best tail-depth-`12`, `spectral_frequencies=0` regime
+- a dedicated `hadamard analyze lp333-crt` utility now anchors the algebraic CRT line
+- the current CRT row-bundle sieve picture is:
+  - `504` exact bundled row-pair solutions at the induced length-`3` level
+  - norm-refined lifted upper bound `5,035,801,219,344`
+  - `90` active bundled states
+  - `30` active bundle orbits
+  - `168` active bundled pair orbits
+  - `42` active bundled pair orbits after quotienting by swap plus common dihedral symmetry
+- the heaviest surviving bundled pair orbit still has raw exact lift space about `1.4545e18`, so a naive exact row-shift `1,2,4` lift is not viable
+- but the first compressed `UV -> W` transition state on that same orbit is only about `1.11e6` / `1.16e6` signatures per side, so an optimized orbit-level exact lift still looks plausible
 - exact small known cases are validated end to end
 
 Current known-case ladder:
@@ -218,11 +228,11 @@ uv run python py/validate_matrix.py fixtures/known/hadamard-small/order28.txt
 
 Highest-value next steps:
 
-1. Shift the roadmap from search engineering toward algebraic sieves; the strongest next bets are multiplier constraints and exact CRT-derived structure for `333 = 9 * 37`.
-2. Work out the LP identity explicitly over `Z_9 x Z_37` and determine what exact necessary conditions valid length-`333` pairs induce on the `9` and `37` components before committing to more code.
-3. Investigate whether any nontrivial multiplier subgroup or automorphism normalization is available for LP(333); even a modest exact orbit constraint could change the search geometry more than another local prune.
-4. If the algebraic sieve line does not produce a practical exact filter, then try a genuinely different exact-tail factorization such as `4+4+4`, not another refinement of the current `6+6` join.
-5. Keep using benchmarked time/state estimates before any long run, especially for MITM-style experiments whose memory cost can dominate quickly.
+1. Keep the current exact-tail compressed-pair path as a runtime baseline, but treat the CRT analyzer as the main discovery path for now.
+2. Turn the surviving CRT row-bundle problem into an optimized exact lift over row shifts `1,2,4`, keyed by orbit-level transition signatures rather than naive lifted rows.
+3. Investigate whether any nontrivial multiplier subgroup or automorphism normalization is available for LP(333); even a modest exact orbit constraint could combine naturally with the CRT bundle-orbit picture.
+4. Promote any CRT or multiplier invariant into the hot search path only after it is exact, documented, and benchmarked against the current reduced anchors.
+5. If the algebraic sieve line stalls, then revisit a genuinely different exact factorization such as `4+4+4`, not more local tweaks of the current `6+6` join.
 
 Focused note:
 

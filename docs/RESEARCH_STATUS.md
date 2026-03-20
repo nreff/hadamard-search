@@ -261,6 +261,18 @@ More concretely:
 - the direct joint path is now strongest when it commits early work to a front prefix and pushes the rest into an exact keyed tail oracle
 - once that happens, the useful next ideas are not generic branch-order tweaks
 - they are better exact tail keys, better factorization, or cheap exact tail-side filters before full residual evaluation
+- the strongest new algebraic object is the CRT-derived row-bundle marginal:
+  - `504` exact bundled row-pair solutions
+  - norm-refined lifted upper bound `5,035,801,219,344`
+  - `90` active bundled states
+  - `30` active bundle orbits
+  - `168` active bundled pair orbits
+  - `42` active bundled pair orbits after quotienting by swap plus common dihedral symmetry
+- the heaviest surviving bundled pair orbit still has raw lift space about `1.4545e18`
+- but its natural `UV -> W` transition state for row shifts `1,2,4` is only about `1.11e6` / `1.16e6` signatures per side
+- that is the current reason the CRT line is still credible:
+  - naive exact lifting is dead
+  - orbit-level exact lifting may still be viable
 
 I would summarize the current mathematical-computational picture like this:
 
