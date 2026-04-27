@@ -237,7 +237,10 @@ struct ComplexAccumulator {
 
 impl ComplexAccumulator {
     fn zero() -> Self {
-        Self { real: 0.0, imag: 0.0 }
+        Self {
+            real: 0.0,
+            imag: 0.0,
+        }
     }
 
     fn add_scaled(&mut self, scale: i16, twiddle: (f64, f64)) {
@@ -383,7 +386,11 @@ impl TailSmallShiftSignature {
 }
 
 impl NaturalPrefixShiftContext {
-    fn build(a_assignments: &[Option<i16>], b_assignments: &[Option<i16>], prefix_len: usize) -> Self {
+    fn build(
+        a_assignments: &[Option<i16>],
+        b_assignments: &[Option<i16>],
+        prefix_len: usize,
+    ) -> Self {
         Self {
             prefix_len,
             values_a: a_assignments[..prefix_len]
@@ -444,7 +451,6 @@ impl NaturalPrefixShiftContext {
         }
         true
     }
-
 }
 
 pub fn run_legendre_search(
@@ -460,12 +466,19 @@ pub fn run_legendre_search(
     if config.shard_count == 0 || config.shard_index >= config.shard_count {
         return Err("invalid shard specification".to_string());
     }
-    if matches!(config.mode(), SearchMode::Exact) && config.length > 20 && config.max_attempts == 0 {
+    if matches!(config.mode(), SearchMode::Exact) && config.length > 20 && config.max_attempts == 0
+    {
         return Err("exact exhaustive search above length 20 requires --max-attempts".to_string());
     }
 
     let mut state = checkpoint.unwrap_or_else(|| {
-        CheckpointState::new("lp", config.length, config.compression, config.shard_index, config.shard_count)
+        CheckpointState::new(
+            "lp",
+            config.length,
+            config.compression,
+            config.shard_index,
+            config.shard_count,
+        )
     });
     let mut metrics = SearchMetrics {
         attempted_pairs: state.next_attempt,
@@ -508,8 +521,14 @@ pub fn run_legendre_search(
         format!("candidate_pool_b={}", metrics.candidate_pool_b),
         format!("generation_branches_a={}", metrics.generation_branches_a),
         format!("generation_branches_b={}", metrics.generation_branches_b),
-        format!("generation_row_sum_pruned_a={}", metrics.generation_row_sum_pruned_a),
-        format!("generation_row_sum_pruned_b={}", metrics.generation_row_sum_pruned_b),
+        format!(
+            "generation_row_sum_pruned_a={}",
+            metrics.generation_row_sum_pruned_a
+        ),
+        format!(
+            "generation_row_sum_pruned_b={}",
+            metrics.generation_row_sum_pruned_b
+        ),
         format!(
             "generation_spectral_pruned_a={}",
             metrics.generation_spectral_pruned_a
@@ -575,7 +594,8 @@ fn run_exact_search(
     let mut matches = Vec::new();
     let mut attempt_index = state.next_attempt;
 
-    while attempt_index < total_pairs && (attempt_index - state.next_attempt) < config.max_attempts {
+    while attempt_index < total_pairs && (attempt_index - state.next_attempt) < config.max_attempts
+    {
         if attempt_index % config.shard_count as u64 != config.shard_index as u64 {
             attempt_index += 1;
             continue;
@@ -686,14 +706,17 @@ fn run_compressed_search(
 
             let score = a.sequence.compressed_legendre_residual_against(&b.sequence);
             metrics.attempted_pairs += 1;
-            if metrics.best_compressed_residual.map_or(true, |best| score < best) {
+            if metrics
+                .best_compressed_residual
+                .map_or(true, |best| score < best)
+            {
                 metrics.best_compressed_residual = Some(score);
             }
             if score == 0 {
                 metrics.residual_zero_pairs += 1;
-                let psd_residual =
-                    a.sequence
-                        .compressed_psd_residual_against(&b.sequence, psd_backend);
+                let psd_residual = a
+                    .sequence
+                    .compressed_psd_residual_against(&b.sequence, psd_backend);
                 if metrics
                     .best_psd_residual
                     .map_or(true, |best| psd_residual < best)
@@ -743,11 +766,7 @@ fn build_candidate_stats(
         .into_iter()
         .map(|sequence| {
             let psd = sequence.psd_with_backend(backend);
-            let max_nonzero_psd = psd
-                .iter()
-                .skip(1)
-                .copied()
-                .fold(0.0_f64, f64::max);
+            let max_nonzero_psd = psd.iter().skip(1).copied().fold(0.0_f64, f64::max);
             let squared_norm = sequence.squared_norm();
             let nonzero_psd_signature = psd
                 .iter()
@@ -788,7 +807,10 @@ fn build_signature_index<'a>(
     let mut index: BTreeMap<(i32, Vec<i64>), Vec<&'a CompressedCandidateStats>> = BTreeMap::new();
     for candidate in candidates {
         index
-            .entry((candidate.squared_norm, candidate.nonzero_psd_signature.clone()))
+            .entry((
+                candidate.squared_norm,
+                candidate.nonzero_psd_signature.clone(),
+            ))
             .or_default()
             .push(candidate);
     }
@@ -826,7 +848,12 @@ fn prune_candidates_by_signature(
         .collect::<BTreeSet<_>>();
     let partner_keys = partner_pool
         .iter()
-        .map(|candidate| (candidate.squared_norm, candidate.nonzero_psd_signature.clone()))
+        .map(|candidate| {
+            (
+                candidate.squared_norm,
+                candidate.nonzero_psd_signature.clone(),
+            )
+        })
         .collect::<BTreeSet<_>>();
 
     primary
@@ -881,8 +908,12 @@ pub fn parse_bucket_artifact_text(text: &str) -> Result<BucketArtifactData, Stri
             "compression" => {
                 compression = Some(value.trim().parse::<usize>().map_err(|e| e.to_string())?)
             }
-            "a_candidate" => a_candidates.push(parse_compressed_sequence(value.trim(), compression)?),
-            "b_candidate" => b_candidates.push(parse_compressed_sequence(value.trim(), compression)?),
+            "a_candidate" => {
+                a_candidates.push(parse_compressed_sequence(value.trim(), compression)?)
+            }
+            "b_candidate" => {
+                b_candidates.push(parse_compressed_sequence(value.trim(), compression)?)
+            }
             _ => {}
         }
     }
@@ -975,10 +1006,16 @@ pub fn decompress_bucket_artifact(
         format!("b_exact_candidates={}", exact_b.len()),
         format!("a_exact_signature_buckets={exact_a_signature_buckets}"),
         format!("b_exact_signature_buckets={exact_b_signature_buckets}"),
-        format!("a_branches_considered={}", expansion_stats_a.branches_considered),
+        format!(
+            "a_branches_considered={}",
+            expansion_stats_a.branches_considered
+        ),
         format!("a_branches_pruned={}", expansion_stats_a.branches_pruned),
         format!("a_sequences_built={}", expansion_stats_a.sequences_built),
-        format!("b_branches_considered={}", expansion_stats_b.branches_considered),
+        format!(
+            "b_branches_considered={}",
+            expansion_stats_b.branches_considered
+        ),
         format!("b_branches_pruned={}", expansion_stats_b.branches_pruned),
         format!("b_sequences_built={}", expansion_stats_b.sequences_built),
         format!("canonical_sequence_pairs={canonical_sequence_pairs}"),
@@ -1015,13 +1052,17 @@ fn prune_exact_candidates_by_complementary_signature(
     let exact_a = exact_a
         .into_iter()
         .filter(|candidate| {
-            b_signatures.contains(&complement_legendre_signature(&candidate.legendre_signature))
+            b_signatures.contains(&complement_legendre_signature(
+                &candidate.legendre_signature,
+            ))
         })
         .collect();
     let exact_b = exact_b
         .into_iter()
         .filter(|candidate| {
-            a_signatures.contains(&complement_legendre_signature(&candidate.legendre_signature))
+            a_signatures.contains(&complement_legendre_signature(
+                &candidate.legendre_signature,
+            ))
         })
         .collect();
     (exact_a, exact_b)
@@ -1040,10 +1081,12 @@ fn build_exact_candidate_stats(
             if !sequence.is_normalized() || !sequence.is_canonical_normalized_dihedral() {
                 continue;
             }
-            unique.entry(sequence.to_line()).or_insert_with(|| ExactCandidateStats {
-                legendre_signature: exact_legendre_signature(&sequence),
-                sequence,
-            });
+            unique
+                .entry(sequence.to_line())
+                .or_insert_with(|| ExactCandidateStats {
+                    legendre_signature: exact_legendre_signature(&sequence),
+                    sequence,
+                });
         }
     }
     Ok(unique.into_values().collect())
@@ -1076,7 +1119,8 @@ fn parse_compressed_sequence(
     input: &str,
     compression: Option<usize>,
 ) -> Result<CompressedSequence, String> {
-    let factor = compression.ok_or_else(|| "compression must be parsed before candidates".to_string())?;
+    let factor =
+        compression.ok_or_else(|| "compression must be parsed before candidates".to_string())?;
     let values = input
         .split(',')
         .map(|value| value.trim().parse::<i16>().map_err(|e| e.to_string()))
@@ -1270,7 +1314,10 @@ fn append_bucket_lines(
             bucket.len()
         ));
         for candidate in bucket {
-            body.push(format!("{label}_candidate={}", candidate.sequence.to_line()));
+            body.push(format!(
+                "{label}_candidate={}",
+                candidate.sequence.to_line()
+            ));
         }
     }
 }
@@ -1280,8 +1327,9 @@ fn build_compressed_generation_context(
     alphabet: &[i16],
     row_sum_target: i32,
 ) -> Result<CompressedGenerationContext, String> {
-    let max_partner_squared_norm = max_row_sum_constrained_squared_norm(order, alphabet, row_sum_target)?
-        .ok_or_else(|| "row sum target is not achievable for compressed search".to_string())?;
+    let max_partner_squared_norm =
+        max_row_sum_constrained_squared_norm(order, alphabet, row_sum_target)?
+            .ok_or_else(|| "row sum target is not achievable for compressed search".to_string())?;
     let max_abs_symbol = alphabet
         .iter()
         .map(|value| f64::from(i16::unsigned_abs(*value)))
@@ -1312,7 +1360,11 @@ fn build_compressed_generation_context(
 }
 
 fn choose_generation_frequencies(order: usize) -> Vec<usize> {
-    let max_checked = if order <= 15 { order.saturating_sub(1) } else { order.min(12) };
+    let max_checked = if order <= 15 {
+        order.saturating_sub(1)
+    } else {
+        order.min(12)
+    };
     (1..=max_checked).collect()
 }
 
@@ -1341,8 +1393,8 @@ fn generate_compressed_sequences(
         return;
     }
     if index == context.order {
-        let candidate =
-            CompressedSequence::new(derived_factor(&context.alphabet), prefix.clone()).expect("candidate");
+        let candidate = CompressedSequence::new(derived_factor(&context.alphabet), prefix.clone())
+            .expect("candidate");
         out.push(candidate);
         stats.candidates_emitted += 1;
         return;
@@ -1411,8 +1463,11 @@ fn spectral_bound_is_impossible(
     spectral_accumulators: &[ComplexAccumulator],
 ) -> bool {
     let max_final_squared_norm = partial_squared_norm + remaining as i32 * 9;
-    let max_allowed_psd =
-        f64::from(max_final_squared_norm + context.max_partner_squared_norm + 2 * derived_factor(&context.alphabet) as i32);
+    let max_allowed_psd = f64::from(
+        max_final_squared_norm
+            + context.max_partner_squared_norm
+            + 2 * derived_factor(&context.alphabet) as i32,
+    );
     let remaining_budget = context.max_abs_symbol * remaining as f64;
     spectral_accumulators.iter().any(|accumulator| {
         let lower_bound = (accumulator.clone().magnitude() - remaining_budget).max(0.0);
@@ -1444,12 +1499,7 @@ fn max_row_sum_constrained_squared_norm(
 }
 
 fn derived_factor(alphabet: &[i16]) -> usize {
-    alphabet
-        .iter()
-        .copied()
-        .max()
-        .unwrap_or(1)
-        .unsigned_abs() as usize
+    alphabet.iter().copied().max().unwrap_or(1).unsigned_abs() as usize
 }
 
 pub fn direct_compressed_pair_probe(
@@ -1732,11 +1782,11 @@ fn direct_compressed_pair_probe_recursive(
                 b_assignments,
                 remaining_norms,
                 total_squared_norm,
-            spectral_context,
-            tail_context,
-            spectral_a,
-            spectral_b,
-            stats,
+                spectral_context,
+                tail_context,
+                spectral_a,
+                spectral_b,
+                stats,
                 out,
                 max_pairs,
             )?;
@@ -1811,14 +1861,11 @@ fn pair_spectral_bound_is_impossible(
     spectral_b: &[ComplexAccumulator],
 ) -> bool {
     let remaining_budget = remaining as f64 * context.max_abs_symbol;
-    spectral_a
-        .iter()
-        .zip(spectral_b)
-        .any(|(acc_a, acc_b)| {
-            let lower_a = (acc_a.clone().magnitude() - remaining_budget).max(0.0);
-            let lower_b = (acc_b.clone().magnitude() - remaining_budget).max(0.0);
-            lower_a * lower_a + lower_b * lower_b > context.target_psd + 1.0e-9
-        })
+    spectral_a.iter().zip(spectral_b).any(|(acc_a, acc_b)| {
+        let lower_a = (acc_a.clone().magnitude() - remaining_budget).max(0.0);
+        let lower_b = (acc_b.clone().magnitude() - remaining_budget).max(0.0);
+        lower_a * lower_a + lower_b * lower_b > context.target_psd + 1.0e-9
+    })
 }
 
 fn build_direct_tail_context(alphabet: &[i16], max_remaining: usize) -> DirectTailContext {
@@ -1911,9 +1958,12 @@ fn exact_tail_complete(
     );
     if remaining <= tail_context.precomputed_max {
         for (required_norm_a, required_norm_b) in feasible_splits {
-            let Some(candidates) = tail_context.tails_by_len[remaining]
-                .get(&(required_sum_a, required_sum_b, required_norm_a, required_norm_b))
-            else {
+            let Some(candidates) = tail_context.tails_by_len[remaining].get(&(
+                required_sum_a,
+                required_sum_b,
+                required_norm_a,
+                required_norm_b,
+            )) else {
                 continue;
             };
             apply_tail_candidates(
@@ -1980,8 +2030,18 @@ fn apply_tail_candidates(
             break;
         }
         stats.tail_candidates_checked += 1;
-        let a_tail = decode_tail_code(*a_code, remaining, tail_context.base, &tail_context.alphabet);
-        let b_tail = decode_tail_code(*b_code, remaining, tail_context.base, &tail_context.alphabet);
+        let a_tail = decode_tail_code(
+            *a_code,
+            remaining,
+            tail_context.base,
+            &tail_context.alphabet,
+        );
+        let b_tail = decode_tail_code(
+            *b_code,
+            remaining,
+            tail_context.base,
+            &tail_context.alphabet,
+        );
         if !tail_exact_spectral_consistent(
             positions,
             index,
@@ -2071,9 +2131,16 @@ fn exact_factorized_tail_complete(
     let mut decoded_right_b_cache = HashMap::<u64, Vec<i16>>::new();
     let left_map = &tail_context.tails_by_len[left_len];
     let right_map = &tail_context.tails_by_len[right_len];
-    let natural_positions = positions.iter().enumerate().all(|(slot, position)| *position == slot);
+    let natural_positions = positions
+        .iter()
+        .enumerate()
+        .all(|(slot, position)| *position == slot);
     let natural_prefix_shift_context = if natural_positions && positions.len() >= 17 {
-        Some(NaturalPrefixShiftContext::build(a_assignments, b_assignments, index))
+        Some(NaturalPrefixShiftContext::build(
+            a_assignments,
+            b_assignments,
+            index,
+        ))
     } else {
         None
     };
@@ -2108,27 +2175,25 @@ fn exact_factorized_tail_complete(
                 if out.len() >= max_pairs {
                     break;
                 }
-                let left_summary = if shift_one_context.is_some()
-                    || natural_prefix_shift_context.is_some()
-                {
-                    Some(cached_tail_join_summary(
-                        &mut left_tail_join_cache,
-                        *left_a,
-                        *left_b,
-                        left_len,
-                        tail_context,
-                    ))
-                } else {
-                    None
-                };
+                let left_summary =
+                    if shift_one_context.is_some() || natural_prefix_shift_context.is_some() {
+                        Some(cached_tail_join_summary(
+                            &mut left_tail_join_cache,
+                            *left_a,
+                            *left_b,
+                            left_len,
+                            tail_context,
+                        ))
+                    } else {
+                        None
+                    };
                 let left_shift_one_sig = left_summary.map(|summary| summary.shift_one);
                 let left_small_shift_sig = natural_prefix_shift_context
                     .as_ref()
                     .and(left_summary.map(|summary| summary.small_shift));
-                if let (Some(context), Some(shift_one_sig)) = (
-                    shift_one_context.as_ref(),
-                    left_shift_one_sig,
-                ) {
+                if let (Some(context), Some(shift_one_sig)) =
+                    (shift_one_context.as_ref(), left_shift_one_sig)
+                {
                     let right_shift_one_buckets = build_right_shift_one_buckets(
                         right_candidates,
                         right_len,
@@ -2146,7 +2211,9 @@ fn exact_factorized_tail_complete(
                         );
                         let Ok(internal_index) = boundary_bucket
                             .by_internal
-                            .binary_search_by_key(&required_internal, |(internal_sum, _)| *internal_sum)
+                            .binary_search_by_key(&required_internal, |(internal_sum, _)| {
+                                *internal_sum
+                            })
                         else {
                             continue;
                         };
@@ -2488,8 +2555,10 @@ fn cached_tail_join_summary(
         let mut a_current = a_code;
         let mut b_current = b_code;
         for index in (0..length).rev() {
-            let a_digit = usize::try_from(a_current % tail_context.base).expect("tail digit fits usize");
-            let b_digit = usize::try_from(b_current % tail_context.base).expect("tail digit fits usize");
+            let a_digit =
+                usize::try_from(a_current % tail_context.base).expect("tail digit fits usize");
+            let b_digit =
+                usize::try_from(b_current % tail_context.base).expect("tail digit fits usize");
             a_values[index] = tail_context.alphabet[a_digit];
             b_values[index] = tail_context.alphabet[b_digit];
             a_current /= tail_context.base;
@@ -2497,9 +2566,8 @@ fn cached_tail_join_summary(
         }
         let mut internal_sum = 0_i32;
         for slot in 0..length.saturating_sub(1) {
-            internal_sum +=
-                i32::from(a_values[slot]) * i32::from(a_values[slot + 1])
-                    + i32::from(b_values[slot]) * i32::from(b_values[slot + 1]);
+            internal_sum += i32::from(a_values[slot]) * i32::from(a_values[slot + 1])
+                + i32::from(b_values[slot]) * i32::from(b_values[slot + 1]);
         }
         TailJoinSummary {
             shift_one: TailShiftOneSignature {
@@ -2654,7 +2722,10 @@ fn boundary_cross_sum_reversed(
     right_len: usize,
     shift: usize,
 ) -> i32 {
-    let count = shift.min(left_len).min(right_len).min(TAIL_SHIFT_FILTER_MAX);
+    let count = shift
+        .min(left_len)
+        .min(right_len)
+        .min(TAIL_SHIFT_FILTER_MAX);
     let mut total = 0_i32;
     for step in 0..count {
         let left_offset_from_end = count - 1 - step;
@@ -2675,7 +2746,10 @@ fn wrap_cross_sum(
     shift: usize,
 ) -> i32 {
     let prefix_cross = shift.min(prefix_len).min(TAIL_SHIFT_FILTER_MAX);
-    let spill = shift.saturating_sub(prefix_len).min(left_len).min(TAIL_SHIFT_FILTER_MAX.saturating_sub(prefix_cross));
+    let spill = shift
+        .saturating_sub(prefix_len)
+        .min(left_len)
+        .min(TAIL_SHIFT_FILTER_MAX.saturating_sub(prefix_cross));
     let mut total = 0_i32;
     for step in 0..prefix_cross {
         let right_offset_from_end = prefix_cross + spill - 1 - step;
@@ -2743,14 +2817,10 @@ fn factorized_tail_spectral_consistent(
     );
 
     for slot in 0..spectral_context.twiddles.len() {
-        let real_a =
-            spectral_a[slot].real + left_a_contrib[slot].real + right_a_contrib[slot].real;
-        let imag_a =
-            spectral_a[slot].imag + left_a_contrib[slot].imag + right_a_contrib[slot].imag;
-        let real_b =
-            spectral_b[slot].real + left_b_contrib[slot].real + right_b_contrib[slot].real;
-        let imag_b =
-            spectral_b[slot].imag + left_b_contrib[slot].imag + right_b_contrib[slot].imag;
+        let real_a = spectral_a[slot].real + left_a_contrib[slot].real + right_a_contrib[slot].real;
+        let imag_a = spectral_a[slot].imag + left_a_contrib[slot].imag + right_a_contrib[slot].imag;
+        let real_b = spectral_b[slot].real + left_b_contrib[slot].real + right_b_contrib[slot].real;
+        let imag_b = spectral_b[slot].imag + left_b_contrib[slot].imag + right_b_contrib[slot].imag;
         let psd_a = real_a * real_a + imag_a * imag_a;
         let psd_b = real_b * real_b + imag_b * imag_b;
         if psd_a + psd_b > spectral_context.target_psd + 1.0e-9 {
@@ -2774,7 +2844,8 @@ fn cached_tail_segment_spectral(
         .entry(code)
         .or_insert_with(|| {
             let values = decode_tail_code(code, length, tail_context.base, &tail_context.alphabet);
-            let mut accumulators = vec![ComplexAccumulator::zero(); spectral_context.twiddles.len()];
+            let mut accumulators =
+                vec![ComplexAccumulator::zero(); spectral_context.twiddles.len()];
             for (offset, value) in values.iter().enumerate() {
                 let position = positions[start_index + offset];
                 for (slot, accumulator) in accumulators.iter_mut().enumerate() {
@@ -2794,7 +2865,9 @@ fn cached_decoded_tail(
 ) -> Vec<i16> {
     cache
         .entry(code)
-        .or_insert_with(|| decode_tail_code(code, length, tail_context.base, &tail_context.alphabet))
+        .or_insert_with(|| {
+            decode_tail_code(code, length, tail_context.base, &tail_context.alphabet)
+        })
         .clone()
 }
 
@@ -3039,7 +3112,10 @@ fn enumerate_partial_pair_states(
     }
 }
 
-fn assigned_combined_squared_norm(a_assignments: &[Option<i16>], b_assignments: &[Option<i16>]) -> i32 {
+fn assigned_combined_squared_norm(
+    a_assignments: &[Option<i16>],
+    b_assignments: &[Option<i16>],
+) -> i32 {
     let norm_a = a_assignments
         .iter()
         .flatten()
@@ -3053,15 +3129,22 @@ fn assigned_combined_squared_norm(a_assignments: &[Option<i16>], b_assignments: 
     norm_a + norm_b
 }
 
-fn mitm_split_positions(order: usize, split_strategy: MitmSplitStrategy) -> (Vec<usize>, Vec<usize>) {
+fn mitm_split_positions(
+    order: usize,
+    split_strategy: MitmSplitStrategy,
+) -> (Vec<usize>, Vec<usize>) {
     match split_strategy {
         MitmSplitStrategy::Contiguous => {
             let split = order / 2;
             ((0..split).collect(), (split..order).collect())
         }
         MitmSplitStrategy::Parity => {
-            let left = (0..order).filter(|index| index % 2 == 0).collect::<Vec<_>>();
-            let right = (0..order).filter(|index| index % 2 == 1).collect::<Vec<_>>();
+            let left = (0..order)
+                .filter(|index| index % 2 == 0)
+                .collect::<Vec<_>>();
+            let right = (0..order)
+                .filter(|index| index % 2 == 1)
+                .collect::<Vec<_>>();
             (left, right)
         }
     }
@@ -3280,7 +3363,10 @@ fn build_sds_pair_index(
 ) -> BTreeMap<Vec<usize>, Vec<&SdsPairCandidate>> {
     let mut index = BTreeMap::new();
     for pair in pairs {
-        index.entry(pair.2.clone()).or_insert_with(Vec::new).push(pair);
+        index
+            .entry(pair.2.clone())
+            .or_insert_with(Vec::new)
+            .push(pair);
     }
     index
 }
@@ -3491,25 +3577,39 @@ mod tests {
         let parsed = parse_bucket_artifact_text(&bucket_text).expect("parse");
         assert_eq!(parsed.length, 9);
         assert_eq!(parsed.compression, 3);
-        let decompressed = decompress_bucket_artifact(
-            &parsed,
-            &DecompressionConfig { max_pairs: 64 },
-        )
-        .expect("decompress");
+        let decompressed =
+            decompress_bucket_artifact(&parsed, &DecompressionConfig { max_pairs: 64 })
+                .expect("decompress");
         assert!(!decompressed.exact_matches.is_empty());
-        assert!(
-            decompressed
-                .artifact
-                .to_text()
-                .contains("canonical_exact_matches=")
-        );
-        assert!(decompressed.artifact.to_text().contains("a_branches_pruned="));
-        assert!(decompressed.artifact.to_text().contains("a_exact_candidates=6"));
-        assert!(decompressed.artifact.to_text().contains("b_exact_candidates=6"));
-        assert!(decompressed.artifact.to_text().contains("a_exact_signature_buckets=6"));
-        assert!(decompressed.artifact.to_text().contains("b_exact_signature_buckets=6"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("canonical_exact_matches="));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("a_branches_pruned="));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("a_exact_candidates=6"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("b_exact_candidates=6"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("a_exact_signature_buckets=6"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("b_exact_signature_buckets=6"));
         assert!(decompressed.artifact.to_text().contains("pairs_checked=6"));
-        assert!(decompressed.artifact.to_text().contains("canonical_exact_matches=3"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("canonical_exact_matches=3"));
         for item in &decompressed.exact_matches {
             let pair = LegendrePair::new(item.a.clone(), item.b.clone()).expect("pair");
             assert!(pair.is_legendre_pair());
@@ -3537,23 +3637,35 @@ mod tests {
         .expect("search");
         let bucket_text = outcome.bucket_artifact.expect("bucket artifact").to_text();
         let parsed = parse_bucket_artifact_text(&bucket_text).expect("parse");
-        let decompressed = decompress_bucket_artifact(
-            &parsed,
-            &DecompressionConfig { max_pairs: 4_096 },
-        )
-        .expect("decompress");
+        let decompressed =
+            decompress_bucket_artifact(&parsed, &DecompressionConfig { max_pairs: 4_096 })
+                .expect("decompress");
         assert!(!decompressed.exact_matches.is_empty());
         let found_known = decompressed.exact_matches.iter().any(|item| {
-            item.a.to_line() == "++++-++-++-----"
-                && item.b.to_line() == "+++--++-+-+-+--"
+            item.a.to_line() == "++++-++-++-----" && item.b.to_line() == "+++--++-+-+-+--"
         });
         assert!(found_known, "expected known exact length-15 match");
-        assert!(decompressed.artifact.to_text().contains("a_exact_candidates=43"));
-        assert!(decompressed.artifact.to_text().contains("b_exact_candidates=43"));
-        assert!(decompressed.artifact.to_text().contains("a_exact_signature_buckets=39"));
-        assert!(decompressed.artifact.to_text().contains("b_exact_signature_buckets=39"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("a_exact_candidates=43"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("b_exact_candidates=43"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("a_exact_signature_buckets=39"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("b_exact_signature_buckets=39"));
         assert!(decompressed.artifact.to_text().contains("pairs_checked=47"));
-        assert!(decompressed.artifact.to_text().contains("canonical_exact_matches=24"));
+        assert!(decompressed
+            .artifact
+            .to_text()
+            .contains("canonical_exact_matches=24"));
     }
 
     #[test]
@@ -3589,16 +3701,9 @@ mod tests {
 
     #[test]
     fn direct_compressed_pair_probe_recovers_known_length_fifteen_projection() {
-        let outcome = direct_compressed_pair_probe(
-            5,
-            3,
-            1,
-            DirectProbeOrdering::Natural,
-            4,
-            3,
-            512,
-        )
-        .expect("probe");
+        let outcome =
+            direct_compressed_pair_probe(5, 3, 1, DirectProbeOrdering::Natural, 4, 3, 512)
+                .expect("probe");
         assert!(!outcome.pairs.is_empty());
         let found_known = outcome.pairs.iter().any(|pair| {
             pair.a().values() == [1, 1, -1, 1, -1] && pair.b().values() == [3, 1, 1, -1, -3]
@@ -3616,16 +3721,9 @@ mod tests {
 
     #[test]
     fn generator_order_direct_probe_recovers_known_length_fifteen_projection() {
-        let outcome = direct_compressed_pair_probe(
-            5,
-            3,
-            1,
-            DirectProbeOrdering::Generator2,
-            4,
-            3,
-            512,
-        )
-        .expect("probe");
+        let outcome =
+            direct_compressed_pair_probe(5, 3, 1, DirectProbeOrdering::Generator2, 4, 3, 512)
+                .expect("probe");
         assert!(!outcome.pairs.is_empty());
         let found_known = outcome.pairs.iter().any(|pair| {
             pair.a().values() == [1, 1, -1, 1, -1] && pair.b().values() == [3, 1, 1, -1, -3]

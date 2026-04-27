@@ -7,7 +7,7 @@ mod sequence;
 pub use artifact::{ArtifactHeader, CheckpointState, SearchArtifact, CURRENT_ARTIFACT_VERSION};
 pub use matrix::Matrix;
 pub use psd::{
-    default_psd_backend, available_psd_backends, get_psd_backend, AutocorrelationPsdBackend,
+    available_psd_backends, default_psd_backend, get_psd_backend, AutocorrelationPsdBackend,
     DirectPsdBackend, FftPsdBackend, PsdBackend,
 };
 pub use sds::{

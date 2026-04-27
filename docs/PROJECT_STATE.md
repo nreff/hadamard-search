@@ -76,8 +76,33 @@ Current state:
   - `30` active bundle orbits
   - `168` active bundled pair orbits
   - `42` active bundled pair orbits after quotienting by swap plus common dihedral symmetry
+  - the top `21` dihedral-swap pair orbits already carry half the residual mass and are built from only `11` distinct bundle orbits
+  - inside that `11`-orbit core, `[-15,5,11]`, `[-13,-1,15]`, and `[-9,-5,15]` are the current hub bundle orbits, each appearing twice as often as the others
+  - the half-mass frontier is also organized by only `7` repeated symmetry-reduced pair families, centered on those hub orbits plus the separate `[-15,3,13] | [-5,3,3]` family
+  - more sharply, that half-mass core decomposes into connected-component sizes `3,3,3,2`, so the next exact-lift prototype can be staged on tiny orbit components rather than a monolithic residual set
+  - the three `3`-node components are essentially equal in mass, so any one of them is a representative first exact-lift target; the remaining `2`-node edge carries exactly half of a `3`-node component
+  - a separate `lp333-crt-component` analyzer now shows that a representative `3`-node hub component has zero cross-spoke overlap under the current full `UV`, coefficient-only, and coarse `W`-frontier signatures, so shared-state reuse in the present `UV -> W` model is not the next win
+  - the same zero-overlap pattern already reproduces on the slightly heaviest `3`-node hub component `[-9,-5,15]`
+  - a separate `lp333-crt-bundle` analyzer now shows that the heaviest bundle `[-15,3,13]` and representative hub bundles `[-15,5,11]` and `[-9,-5,15]` are injective at the full `UV` and coefficient-only levels across all cyclic `2+1` splits, but still collapse to only about `4.1k` coarse `W`-frontier states, a stable `~250x` to `275x` reduction
+  - a newer `lp333-crt-pair` analyzer now shows that even after fixing one row shift at a time, the representative hub pair `[-15,5,11] | [-5,-1,7]` still has essentially no useful pre-`W` state collapse, and a naive norm-plus-one-shift materialization would still require about `1.13e9` left-side combinations and `1.16e9` right-side ones; the heaviest pair `[-15,3,13] | [-5,3,3]` is similar at about `1.07e9` and `1.22e9`
+  - coefficient-permutation caching gives a real but bounded `~5.84x` reuse factor for `W` histograms, and sampled heavy `W` buckets only collapse locally by about `4.1x` to `4.9x`, so this is not enough to rescue the naive one-shift materialization path
+  - an opt-in frontier-join diagnostic now shows that exact norm compatibility between left/right coefficient buckets is a real staging filter (`~17.6M` bucket pairs down to about `79k` to `80k`), but row-shift marginal compatibility prunes nothing and active side materialization remains in the hundreds of millions; top survivor bucket-pair samples are sparse (`~9.6e11` raw row-pair products down to about `12k` to `13k` exact joins)
+  - a newer `--frontier-exact-join` pass now materializes only those active frontier buckets and recovers the full exact one-shift join count offline: `124,923,897` on `[-15,5,11] | [-5,-1,7]` and `124,940,502` on `[-15,3,13] | [-5,3,3]`, both about `1.25%` of the norm-only count
+  - on the representative pair, the active-frontier exact one-shift count is exactly the same for shifts `1`, `2`, and `4`, so the current one-shift analyzer is not hiding a better cyclic shift choice
+  - an opt-in two-shift pair diagnostic now closes the middle case: each of `(1,2)`, `(1,4)`, and `(2,4)` makes the representative pair's coefficient buckets injective (`1,106,079` left buckets and `1,166,391` right buckets, max bucket mass `1`), and the heaviest pair shows the same singleton-bucket shape
+  - an opt-in all-shifts pair diagnostic now shows the opposite failure mode: carrying shifts `1,2,4` together makes the representative pair's coefficient buckets injective (`1,106,079` left buckets and `1,166,391` right buckets, max bucket mass `1`), so the `W`-frontier batching disappears entirely
+- a dedicated `lp333-multiplier` analyzer now separates unconditional multiplier equivalence from conditional stabilizer assumptions
+  - the full column-preserving stabilizer hypothesis is incompatible with the row-bundle sieve (`18` allowed bundles, `0` ordered bundled pairs)
+  - among `39` cyclic subgroups with nontrivial row action, `15` survive the row-bundle sieve
+  - the best nontrivial row-action hypotheses all have `row_units={1,4,7}`, leave `1064` allowed bundles and `12` ordered bundled pairs, and carry norm-refined mass `119,903,105,952`
+  - the first full row-marginal lift for `row_units={1,4,7}` now leaves `6,048` exact length-`9` row-sum marginal pairs after norm and pure row autocorrelation checks
+  - the column-trivial order-`3` representative `{1,112,223}` is now rejected by an actual shift-`(alpha,0)` row-dot marginal feasibility check: `0` of those `6,048` row-marginal pairs can realize the required row-dot equations when rows in each orbit are identical; this uses the actual nonzero shift target `-2`, not the row-compressed aggregate target `-74`
+  - for the non-column-trivial order-`3` cases with `col_units={1,10,26}`, a fixed-row column-orbit representability check now keeps `1,296` of the `6,048` exact row-marginal pairs, with aggregate fixed-row-pattern mass `log10 ~= 60.818`
+  - an exact column-`10` orbit dot calculation for the actual shift `(3,0)` does not prune those survivors further: all `1,296` fixed-row-compatible row-marginal pairs remain feasible at that marginal level
+  - an exact `(0,1)` column-shift frontier-DP scaffold now exists behind `hadamard analyze lp333-multiplier --col10-shift1`, but it is skipped by default because the current implementation is too slow for a routine checkpoint
+  - the remaining multiplier-subfamily targets are still the non-column-trivial `row_units={1,4,7}` subgroups, where row orbits are tied by column permutations rather than identical row sequences; the next missing check is mixed CRT compatibility on actual invariant sign tables
 - the heaviest surviving bundled pair orbit still has raw exact lift space about `1.4545e18`, so a naive exact row-shift `1,2,4` lift is not viable
-- but the first compressed `UV -> W` transition state on that same orbit is only about `1.11e6` / `1.16e6` signatures per side, so an optimized orbit-level exact lift still looks plausible
+- but the first compressed `UV -> W` transition state on that same orbit is only about `1.11e6` / `1.16e6` signatures per side, and the measured collapse now appears concentrated at the final `W` frontier rather than inside the `UV` table itself, so an optimized orbit-level exact lift still looks plausible if it batches on that downstream key
 - exact small known cases are validated end to end
 
 Current known-case ladder:
@@ -230,7 +255,7 @@ Highest-value next steps:
 
 1. Keep the current exact-tail compressed-pair path as a runtime baseline, but treat the CRT analyzer as the main discovery path for now.
 2. Turn the surviving CRT row-bundle problem into an optimized exact lift over row shifts `1,2,4`, keyed by orbit-level transition signatures rather than naive lifted rows.
-3. Investigate whether any nontrivial multiplier subgroup or automorphism normalization is available for LP(333); even a modest exact orbit constraint could combine naturally with the CRT bundle-orbit picture.
+3. Continue the non-column-trivial `row_units={1,4,7}` multiplier branch by deriving mixed CRT constraints for the `col_units={1,10,26}` row-orbit action, starting from the `1,296` surviving fixed-row-compatible row marginals.
 4. Promote any CRT or multiplier invariant into the hot search path only after it is exact, documented, and benchmarked against the current reduced anchors.
 5. If the algebraic sieve line stalls, then revisit a genuinely different exact factorization such as `4+4+4`, not more local tweaks of the current `6+6` join.
 

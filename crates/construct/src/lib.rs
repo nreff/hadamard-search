@@ -17,7 +17,9 @@ pub fn build_two_circulant_hadamard(pair: &LegendrePair) -> Result<Matrix, Strin
         return Err("pair does not satisfy Legendre autocorrelation conditions".to_string());
     }
     if !pair.has_two_circulant_row_sums() {
-        return Err("pair does not satisfy row-sum=1 conditions for the 2cc construction".to_string());
+        return Err(
+            "pair does not satisfy row-sum=1 conditions for the 2cc construction".to_string(),
+        );
     }
 
     let a = circulant(&pair.a);

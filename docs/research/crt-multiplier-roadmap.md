@@ -55,6 +55,79 @@ The best outcome would be a true orbit reduction. Even a weaker outcome, such as
 
 ## Concrete Near-Term Tasks
 
+### Current Analyzer Checkpoint
+
+The `hadamard analyze lp333-multiplier` utility now separates unconditional multiplier
+equivalence facts from conditional stabilizer assumptions.
+
+Current measured picture:
+
+- `U(333)` has `216` units and `47` nontrivial cyclic subgroups.
+- Row-preserving cyclic subgroups are not useful at the row-bundle level: they leave all
+  `504` ordered bundled exact pairs alive because their row action is trivial.
+- The full column-preserving subgroup is too strong as a stabilizer assumption:
+  it allows only `18` row-bundle triples and leaves `0` ordered bundled exact pairs.
+- Among the `39` cyclic subgroups with nontrivial row action, `15` survive the
+  row-bundle sieve.
+- Every best surviving nontrivial row-action hypothesis has row action
+  `row_units={1,4,7}`, row orbits `0 | 1,4,7 | 2,5,8 | 3 | 6`,
+  `1064` allowed row-bundle triples, `12` ordered bundled exact pairs, and
+  norm-refined mass `119,903,105,952`.
+- A follow-up full row-marginal lift for that row action now survives the remaining
+  pure-`Z_9` row equations:
+  - `12` bundled row-pair cases
+  - `7` active bundle triples
+  - `7,467` active invariant length-`9` row-sum marginals
+  - `13,764,060` row-marginal pair candidates
+  - `6,048` norm-compatible row-marginal pairs
+  - all `6,048` also satisfy the nonzero row autocorrelation target `-74`
+  - for the column-trivial representative subgroup `{1,112,223}`, the rough invariant
+    row-pattern multiplicity across those exact row marginals has `log10 ~= 103.315`
+- A further shift-`(alpha,0)` row-dot marginal test then rejects that column-trivial
+  representative:
+  - `0` of the `6,048` exact row-marginal pairs can realize the actual shift-`0`
+    row-dot equations required by the LP identity when rows in the multiplier orbits
+    are identical length-`37` sequences
+  - this check uses the actual nonzero CRT-shift target `-2`, not the row-compressed
+    aggregate target `-74`
+- For the remaining non-column-trivial order-`3` cases with column action
+  `col_units={1,10,26}`, a first fixed-row representability check has now been added:
+  - rows `0`, `3`, and `6` must be fixed by the column action, so each such row is
+    determined by column `0` plus `12` length-`3` orbits on nonzero columns
+  - `1,296` of the `6,048` exact row-marginal pairs survive this necessary check
+  - the corresponding aggregate fixed-row-pattern multiplicity is
+    `log10 ~= 60.818`
+- An exact column-`10` orbit calculation for the actual CRT shift `(3,0)` was also
+  added for those non-column-trivial cases:
+  - it models the three fixed rows plus the self-dot terms from the row orbits
+    `1,4,7` and `2,5,8`
+  - it does not prune further: all `1,296` fixed-row-compatible row-marginal pairs
+    also pass this `(3,0)` marginal feasibility check
+- The next natural mixed marginal is actual CRT shift `(0,1)`:
+  - an exact frontier-DP scaffold now exists behind
+    `hadamard analyze lp333-multiplier --col10-shift1`
+  - it is intentionally skipped by the default analyzer because the current exact
+    implementation is still too slow to be a routine checkpoint
+  - no `(0,1)` survivor count should be treated as recorded until that opt-in path is
+    optimized and rerun
+- Representative surviving order-`3` hypotheses include subgroups
+  `{1,121,322}` and `{1,211,232}` after removing the column-trivial representative
+  `{1,112,223}`.
+- The top oriented surviving row-bundle samples include
+  `[-5,-9,15] | [-5,-3,9]` and `[-5,-9,15] | [-5,9,-3]`.
+
+Interpretation:
+
+- This does not prove that an `LP(333)` pair has a multiplier stabilizer.
+- It does show that if we intentionally search a multiplier-invariant subfamily,
+  `row_units={1,4,7}` is the first defensible nontrivial row-action target.
+- Subgroups that swap mod-`3` row-bundle classes are already incompatible with the
+  exact row-bundle sieve at this level.
+- The immediate next blocker is not the pure row-sum marginal or fixed-row
+  representability anymore. It is lifting the surviving non-column-trivial
+  `row_units={1,4,7}` subgroups to actual invariant `9 x 37` sign tables while
+  enforcing mixed CRT character constraints.
+
 ### Paper-first tasks
 
 1. Derive the LP identity explicitly in the product-group basis for `Z_9 x Z_37`.

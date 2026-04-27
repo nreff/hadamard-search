@@ -98,9 +98,13 @@ impl CheckpointState {
                 .split_once('=')
                 .ok_or_else(|| format!("invalid checkpoint line: {line}"))?;
             match key.trim() {
-                "version" => version = Some(value.trim().parse::<u32>().map_err(|e| e.to_string())?),
+                "version" => {
+                    version = Some(value.trim().parse::<u32>().map_err(|e| e.to_string())?)
+                }
                 "mode" => mode = Some(value.trim().to_string()),
-                "length" => length = Some(value.trim().parse::<usize>().map_err(|e| e.to_string())?),
+                "length" => {
+                    length = Some(value.trim().parse::<usize>().map_err(|e| e.to_string())?)
+                }
                 "compression" => {
                     compression = Some(value.trim().parse::<usize>().map_err(|e| e.to_string())?)
                 }

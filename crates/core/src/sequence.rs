@@ -52,8 +52,7 @@ impl Sequence {
         let offset = shift % n;
         let mut total = 0_i32;
         for index in 0..n {
-            total +=
-                i32::from(self.values[index]) * i32::from(self.values[(index + offset) % n]);
+            total += i32::from(self.values[index]) * i32::from(self.values[(index + offset) % n]);
         }
         total
     }
@@ -226,14 +225,11 @@ impl CompressedSequence {
         backend.compute(&values)
     }
 
-    pub fn compressed_psd_residual_against(
-        &self,
-        other: &Self,
-        backend: &dyn PsdBackend,
-    ) -> f64 {
+    pub fn compressed_psd_residual_against(&self, other: &Self, backend: &dyn PsdBackend) -> f64 {
         let psd_a = self.psd_with_backend(backend);
         let psd_b = other.psd_with_backend(backend);
-        let target = f64::from(self.squared_norm() + other.squared_norm()) + 2.0 * self.factor as f64;
+        let target =
+            f64::from(self.squared_norm() + other.squared_norm()) + 2.0 * self.factor as f64;
         let mut total = 0.0_f64;
         for index in 1..self.len() {
             total += ((psd_a[index] + psd_b[index]) - target).abs();
@@ -258,7 +254,6 @@ impl CompressedSequence {
             .collect::<Vec<_>>()
             .join(",")
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,7 +275,8 @@ impl LegendrePair {
 
     pub fn is_legendre_pair(&self) -> bool {
         for shift in 1..self.a.len() {
-            if self.a.periodic_autocorrelation(shift) + self.b.periodic_autocorrelation(shift) != -2 {
+            if self.a.periodic_autocorrelation(shift) + self.b.periodic_autocorrelation(shift) != -2
+            {
                 return false;
             }
         }
@@ -368,7 +364,10 @@ mod tests {
 
     #[test]
     fn compressed_sequence_alphabet_is_odd_progression() {
-        assert_eq!(CompressedSequence::alphabet_for_factor(3), vec![-3, -1, 1, 3]);
+        assert_eq!(
+            CompressedSequence::alphabet_for_factor(3),
+            vec![-3, -1, 1, 3]
+        );
     }
 
     #[test]
@@ -408,7 +407,10 @@ mod tests {
         let compressed_b = b.compress(3).expect("compressed b");
         assert_eq!(compressed_a.values(), &[1, 1, -1]);
         assert_eq!(compressed_b.values(), &[3, -1, -1]);
-        assert_eq!(compressed_a.compressed_legendre_residual_against(&compressed_b), 0);
+        assert_eq!(
+            compressed_a.compressed_legendre_residual_against(&compressed_b),
+            0
+        );
         let psd_residual =
             compressed_a.compressed_psd_residual_against(&compressed_b, &DirectPsdBackend);
         assert!(psd_residual.abs() < 1.0e-6, "psd_residual={psd_residual}");

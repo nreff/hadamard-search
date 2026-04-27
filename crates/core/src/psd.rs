@@ -81,7 +81,10 @@ impl PsdBackend for FftPsdBackend {
     }
 
     fn compute(&self, values: &[f64]) -> Vec<f64> {
-        fft_real(values).into_iter().map(Complex64::norm_sqr).collect()
+        fft_real(values)
+            .into_iter()
+            .map(Complex64::norm_sqr)
+            .collect()
     }
 }
 
