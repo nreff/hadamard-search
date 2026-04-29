@@ -331,6 +331,7 @@ The multiplier line now has a first careful screen rather than only a roadmap it
 - the next mixed marginal, actual CRT shift `(0,1)`, now has an opt-in exact frontier-DP scaffold:
   - command: `hadamard analyze lp333-multiplier --col10-shift1`
   - the default analyzer deliberately reports this path as skipped because the current exact DP is still too slow for routine checkpointing
+  - a direct opt-in run was attempted, but it did not complete quickly enough to be a recorded result
   - no `(0,1)` pruning result is recorded yet
 - representative order-`3` row-action subgroups that remain worth testing are therefore the non-column-trivial cases such as `{1,121,322}` and `{1,211,232}`
 - representative oriented bundle samples include `[-5,-9,15] | [-5,-3,9]` and `[-5,-9,15] | [-5,9,-3]`

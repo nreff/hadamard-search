@@ -124,6 +124,8 @@ What happened:
 - the first generic factor-join version was too slow for tests
 - the current frontier version is still kept out of the default analyzer because it is
   not yet fast enough to be a routine checkpoint
+- a direct opt-in run was attempted and did not finish quickly enough to be useful as a
+  recorded result
 
 Conclusion:
 - the `(0,1)` mixed marginal remains the right next mathematical diagnostic, but its

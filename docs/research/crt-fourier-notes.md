@@ -590,6 +590,7 @@ The first row-bundle compatibility screen gives a useful calibration:
 - an exact column-`10` orbit calculation for actual shift `(3,0)` then models the fixed-row pair dots and the self-dot terms from the row orbits `1,4,7` and `2,5,8`
 - that `(3,0)` marginal does not prune further: all `1,296` fixed-row-compatible row marginals remain feasible at this level
 - the next shift orbit to test is `(0,1)`; an exact frontier-DP scaffold exists behind `hadamard analyze lp333-multiplier --col10-shift1`, but it is currently opt-in because it is too slow for the default analyzer
+- a direct opt-in run was attempted, but it did not complete quickly enough to be a recorded result
 
 So if the project tests a multiplier-invariant LP(333) subfamily, the current best target is not the full column-preserving subgroup and not the column-trivial representative `{1,112,223}`. It is the same smaller order-`3` style row action `row_units={1,4,7}`, but with a nontrivial column action such as `{1,121,322}` or `{1,211,232}`.
 

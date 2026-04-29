@@ -108,6 +108,8 @@ Current measured picture:
     `hadamard analyze lp333-multiplier --col10-shift1`
   - it is intentionally skipped by the default analyzer because the current exact
     implementation is still too slow to be a routine checkpoint
+  - a direct opt-in run was attempted, but it did not complete quickly enough to be
+    useful as a recorded result
   - no `(0,1)` survivor count should be treated as recorded until that opt-in path is
     optimized and rerun
 - Representative surviving order-`3` hypotheses include subgroups
