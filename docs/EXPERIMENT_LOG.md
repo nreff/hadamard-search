@@ -124,12 +124,45 @@ What happened:
 - the first generic factor-join version was too slow for tests
 - the current frontier version is still kept out of the default analyzer because it is
   not yet fast enough to be a routine checkpoint
-- a direct opt-in run was attempted and did not finish quickly enough to be useful as a
-  recorded result
+- a fast direct `2^13` table run completed, but that table enumerated only rows fixed
+  by column multiplication by `10`
+- that is too strong for the nonfixed row orbits in the order-`3` mixed branch: those
+  rows are arbitrary base rows whose copies are tied by column multiplication, not
+  rows that are themselves column-orbit-constant
+- the arbitrary-row frontier DP has been restored for this table
+- the corrected exact run took about `176s` in the targeted test and leaves all
+  `1,296` fixed-row-compatible row-marginal pairs alive, with aggregate pattern mass
+  still `log10 ~= 60.818`
+- the multiplier analyzer also gained an opt-in CRT component orbit view behind
+  `--crt-components`, which prints the coordinate orbits as `(mod 9, mod 37)` pairs
+  and a focused `row_units={1,4,7}` hypothesis summary; that family currently has
+  `15` surviving hypotheses split across subgroup orders `3,6,9,12,18,36`, with
+  order-`3` column units `[1]` / `[1,10,26]` and order-`6` column units `[1,36]`
+  / `[1,10,11,26,27,36]`; the nontrivial mixed-CRT target set is the four
+  hypotheses in `crt_component_mixed_crt_targets`, with order split `3:2,6:2`,
+  and the summary now includes `pairs`, `mass`, `pair_samples`, and `col_orbits`,
+  but those four targets currently tie on `pairs=12`, `mass=119903105952`,
+  `row_orbits=0|1,4,7|2,5,8|3|6`, and `allowed_bundles=1064`; the top pair
+  samples are also identical across the four targets; `col_orbits` only splits
+  them into the order-`3` and order-`6` buckets, and the remaining distinction is
+  the explicit `subgroup_crt` label
+- the CRT component view now also runs an actual invariant-row-stabilizer lift on
+  those four mixed targets:
+  - the two order-`3` targets have `113` invariant table orbits with size
+    distribution `1:3,3:110`; they reproduce the `1,296` exact row-pair survivors
+    and `log10 ~= 60.818`
+  - the two order-`6` targets have `59` invariant table orbits with size
+    distribution `1:3,3:2,6:54`; their stronger row stabilizer leaves only `216`
+    active row marginals and `0` row-pair candidates after the active bundle-pair
+    join
 
 Conclusion:
-- the `(0,1)` mixed marginal remains the right next mathematical diagnostic, but its
-  exact implementation needs optimization before its survivor count should be recorded
+- the `(0,1)` mixed marginal is now recorded as non-pruning for the corrected
+  arbitrary-row table, but the exact path remains opt-in because it is still too slow
+  for routine checkpoints
+- the mixed target set has narrowed further: the order-`6` mixed targets are rejected
+  by actual invariant row-stabilizer compatibility, leaving the two non-column-trivial
+  order-`3` subgroups as the next mixed-character targets
 - default `hadamard analyze lp333-multiplier` now marks this path as `skipped`
 
 ### Rejected as a default CRT pair path: naive norm-plus-one-shift materialization inside `W`-frontier buckets

@@ -108,10 +108,33 @@ Current measured picture:
     `hadamard analyze lp333-multiplier --col10-shift1`
   - it is intentionally skipped by the default analyzer because the current exact
     implementation is still too slow to be a routine checkpoint
-  - a direct opt-in run was attempted, but it did not complete quickly enough to be
-    useful as a recorded result
-  - no `(0,1)` survivor count should be treated as recorded until that opt-in path is
-    optimized and rerun
+  - a previous fast `2^13` table result is no longer treated as recorded, because it
+    enumerated only rows fixed by column multiplication by `10`
+  - the nonfixed order-`3` row orbits require arbitrary base rows whose row-orbit
+    copies are column-multiplied, so the arbitrary-row table has been restored
+  - the corrected exact run takes about `176s` in the targeted test and leaves all
+    `1,296` fixed-row-compatible row-marginal pairs alive, so `(0,1)` adds no sound
+    pruning at this marginal level
+  - a companion opt-in CRT component view is now available behind
+    `hadamard analyze lp333-multiplier --crt-components`
+    and prints the coordinate orbits as `(mod 9, mod 37)` residue pairs plus a focused
+    `row_units={1,4,7}` hypothesis summary; that family currently has `15`
+    surviving hypotheses split across subgroup orders `3,6,9,12,18,36`, with
+    order-`3` column units `[1]` / `[1,10,26]` and order-`6` column units
+    `[1,36]` / `[1,10,11,26,27,36]`; the nontrivial mixed-CRT target set is the
+    four hypotheses in `crt_component_mixed_crt_targets`, with order split `3:2,6:2`,
+    and the summary now includes `pairs`, `mass`, `pair_samples`, and `col_orbits`,
+    but those four targets currently tie on `pairs=12`, `mass=119903105952`,
+    `row_orbits=0|1,4,7|2,5,8|3|6`, `allowed_bundles=1064`, and the same top pair
+    samples; `col_orbits` only separates the order-`3` and order-`6` buckets, and
+    the remaining distinction is the explicit `subgroup_crt` label
+  - the same CRT component view now runs an actual invariant-row-stabilizer lift:
+    the two order-`3` targets have `113` invariant table orbits with size
+    distribution `1:3,3:110`, and they reproduce the `1,296` exact row-pair
+    survivors with aggregate mass `log10 ~= 60.818`; the two order-`6` targets have
+    `59` invariant table orbits with size distribution `1:3,3:2,6:54`, but their
+    stronger row stabilizer leaves `0` row-pair candidates after the active
+    bundle-pair join
 - Representative surviving order-`3` hypotheses include subgroups
   `{1,121,322}` and `{1,211,232}` after removing the column-trivial representative
   `{1,112,223}`.
@@ -125,10 +148,12 @@ Interpretation:
   `row_units={1,4,7}` is the first defensible nontrivial row-action target.
 - Subgroups that swap mod-`3` row-bundle classes are already incompatible with the
   exact row-bundle sieve at this level.
+- The nontrivial order-`6` mixed targets are now incompatible with actual invariant
+  row-stabilizer row sums before any mixed-character lift is attempted.
 - The immediate next blocker is not the pure row-sum marginal or fixed-row
   representability anymore. It is lifting the surviving non-column-trivial
-  `row_units={1,4,7}` subgroups to actual invariant `9 x 37` sign tables while
-  enforcing mixed CRT character constraints.
+  order-`3` `row_units={1,4,7}` subgroups to actual invariant `9 x 37` sign tables
+  while enforcing coupled mixed CRT character constraints.
 
 ### Paper-first tasks
 

@@ -179,10 +179,14 @@ fn cmd_analyze_lp333_multiplier(args: Vec<String>) -> Result<(), String> {
         return Err("expected `analyze lp333-multiplier`".to_string());
     }
     let include_col10_shift1 = args.iter().any(|arg| arg == "--col10-shift1");
-    print_lp333_multiplier_analysis(include_col10_shift1)
+    let include_crt_components = args.iter().any(|arg| arg == "--crt-components");
+    print_lp333_multiplier_analysis(include_col10_shift1, include_crt_components)
 }
 
-fn print_lp333_multiplier_analysis(include_col10_shift1: bool) -> Result<(), String> {
+fn print_lp333_multiplier_analysis(
+    include_col10_shift1: bool,
+    include_crt_components: bool,
+) -> Result<(), String> {
     let n = 333u32;
     let (p, q) = (9u32, 37u32);
 
@@ -216,6 +220,176 @@ fn print_lp333_multiplier_analysis(include_col10_shift1: bool) -> Result<(), Str
     let max_orbit = coord_orbits.iter().map(|o| o.len()).max().unwrap_or(0);
     println!("min_coordinate_orbit_size={min_orbit}");
     println!("max_coordinate_orbit_size={max_orbit}");
+    let row_bundle_pair_masses = row_mod3_bundle_pair_masses();
+    if include_crt_components {
+        println!();
+        println!("# CRT component orbit view");
+        println!("# Each coordinate orbit is shown as residue pairs (mod 9, mod 37)");
+        println!("crt_component_orbit_count={}", coord_orbits.len());
+        println!(
+            "crt_component_orbit_size_distribution={}",
+            format_size_dist(&orbit_size_dist)
+        );
+        for (i, orbit) in coord_orbits.iter().take(8).enumerate() {
+            println!(
+                "crt_component_orbit_{i}={}",
+                orbit
+                    .iter()
+                    .map(|value| format!("({},{})", value % p, value % q))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+        let cyclic_hypotheses = cyclic_multiplier_hypotheses(&units, n, &row_bundle_pair_masses);
+        let row_units_147_hypotheses = cyclic_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.row_units.as_slice() == [1, 4, 7])
+            .cloned()
+            .collect::<Vec<_>>();
+        let row_units_147_order_3_hypotheses = row_units_147_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.order == 3)
+            .cloned()
+            .collect::<Vec<_>>();
+        let row_units_147_order_6_hypotheses = row_units_147_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.order == 6)
+            .cloned()
+            .collect::<Vec<_>>();
+        let row_units_147_order_3_nontrivial_hypotheses = row_units_147_order_3_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.column_units.as_slice() != [1])
+            .cloned()
+            .collect::<Vec<_>>();
+        let row_units_147_order_6_nontrivial_hypotheses = row_units_147_order_6_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.column_units.as_slice() != [1, 36])
+            .cloned()
+            .collect::<Vec<_>>();
+        let nontrivial_row_action_hypotheses = cyclic_hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.row_units.as_slice() != [1])
+            .cloned()
+            .collect::<Vec<_>>();
+        println!(
+            "crt_component_nontrivial_row_action_hypotheses={}",
+            top_cyclic_hypothesis_crt_component_summaries(&nontrivial_row_action_hypotheses, 8)
+                .join(";")
+        );
+        println!(
+            "crt_component_row_units_147_hypotheses={}",
+            top_cyclic_hypothesis_crt_component_summaries(&row_units_147_hypotheses, 8).join(";")
+        );
+        println!(
+            "crt_component_row_units_147_hypothesis_count={}",
+            row_units_147_hypotheses.len()
+        );
+        println!(
+            "crt_component_row_units_147_column_units_distribution={}",
+            format_vec_distribution(
+                &row_units_147_hypotheses
+                    .iter()
+                    .map(|hypothesis| hypothesis.column_units.clone())
+                    .collect::<Vec<_>>()
+            )
+        );
+        println!(
+            "crt_component_row_units_147_order_distribution={}",
+            format_usize_distribution(
+                &row_units_147_hypotheses
+                    .iter()
+                    .map(|hypothesis| hypothesis.order)
+                    .collect::<Vec<_>>()
+            )
+        );
+        println!(
+            "crt_component_row_units_147_order_3_column_units_distribution={}",
+            format_vec_distribution(
+                &row_units_147_order_3_hypotheses
+                    .iter()
+                    .map(|hypothesis| hypothesis.column_units.clone())
+                    .collect::<Vec<_>>()
+            )
+        );
+        println!(
+            "crt_component_row_units_147_order_6_column_units_distribution={}",
+            format_vec_distribution(
+                &row_units_147_order_6_hypotheses
+                    .iter()
+                    .map(|hypothesis| hypothesis.column_units.clone())
+                    .collect::<Vec<_>>()
+            )
+        );
+        println!(
+            "crt_component_row_units_147_order_3_nontrivial_hypothesis_count={}",
+            row_units_147_order_3_nontrivial_hypotheses.len()
+        );
+        println!(
+            "crt_component_row_units_147_order_6_nontrivial_hypothesis_count={}",
+            row_units_147_order_6_nontrivial_hypotheses.len()
+        );
+        println!(
+            "crt_component_row_units_147_order_3_nontrivial_hypotheses={}",
+            top_cyclic_hypothesis_crt_component_summaries(
+                &row_units_147_order_3_nontrivial_hypotheses,
+                8
+            )
+            .join(";")
+        );
+        println!(
+            "crt_component_row_units_147_order_6_nontrivial_hypotheses={}",
+            top_cyclic_hypothesis_crt_component_summaries(
+                &row_units_147_order_6_nontrivial_hypotheses,
+                8
+            )
+            .join(";")
+        );
+        let mixed_crt_targets = row_units_147_order_3_nontrivial_hypotheses
+            .iter()
+            .chain(row_units_147_order_6_nontrivial_hypotheses.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        println!(
+            "crt_component_mixed_crt_targets={}",
+            top_cyclic_hypothesis_crt_component_summaries(&mixed_crt_targets, 8).join(";")
+        );
+        println!(
+            "crt_component_mixed_crt_target_subgroups={}",
+            mixed_crt_targets
+                .iter()
+                .map(|hypothesis| format_crt_pair_list(&hypothesis.subgroup))
+                .collect::<Vec<_>>()
+                .join(";")
+        );
+        println!(
+            "crt_component_mixed_crt_target_count={}",
+            mixed_crt_targets.len()
+        );
+        println!(
+            "crt_component_mixed_crt_target_order_distribution={}",
+            format_usize_distribution(
+                &mixed_crt_targets
+                    .iter()
+                    .map(|hypothesis| hypothesis.order)
+                    .collect::<Vec<_>>()
+            )
+        );
+        println!(
+            "crt_component_mixed_crt_invariant_row_lifts={}",
+            mixed_crt_targets
+                .iter()
+                .map(|hypothesis| {
+                    row_units_147_invariant_row_lift_summary(
+                        &row_units_147_invariant_row_lift_analysis(
+                            &row_bundle_pair_masses,
+                            &hypothesis.subgroup,
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(";")
+        );
+    }
 
     // 3. CRT-factored orbit analysis
     // Orbits of U(9) on Z_9 \ {0}
@@ -404,7 +578,6 @@ fn print_lp333_multiplier_analysis(include_col10_shift1: bool) -> Result<(), Str
             .join(",")
     );
 
-    let row_bundle_pair_masses = row_mod3_bundle_pair_masses();
     let col_preserving_row_units = sorted_residues(&col_preserving, p);
     let col_preserving_allowed_bundles =
         row_bundle_triples_for_row_units(&col_preserving_row_units);
@@ -767,6 +940,38 @@ fn format_u32_list(items: &[u32]) -> String {
         .join(",")
 }
 
+fn format_vec_distribution(items: &[Vec<u32>]) -> String {
+    let mut counts = BTreeMap::<Vec<u32>, usize>::new();
+    for item in items {
+        *counts.entry(item.clone()).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(item, count)| format!("[{}]:{count}", format_u32_list(&item)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn format_usize_distribution(items: &[usize]) -> String {
+    let mut counts = BTreeMap::<usize, usize>::new();
+    for item in items {
+        *counts.entry(*item).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(item, count)| format!("{item}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn format_crt_pair_list(items: &[u32]) -> String {
+    items
+        .iter()
+        .map(|value| format!("({},{})", value % 9, value % 37))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[derive(Clone, Debug)]
 struct RowBundlePairMass {
     left: [i32; 3],
@@ -782,6 +987,7 @@ struct CyclicMultiplierHypothesis {
     column_units: Vec<u32>,
     mod3_actions: Vec<u32>,
     row_orbit_signature: String,
+    column_orbit_signature: String,
     allowed_bundle_count: usize,
     surviving_pair_count: u128,
     surviving_mass: u128,
@@ -825,6 +1031,33 @@ struct RowUnits147FullRowLiftAnalysis {
     top_col10_shift1_samples: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantMarginal {
+    rows: [i32; 9],
+    norm: i32,
+    paf: [i32; 9],
+    pattern_log10: f64,
+}
+
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantRowLiftAnalysis {
+    subgroup: Vec<u32>,
+    table_orbit_count: usize,
+    table_orbit_size_distribution: BTreeMap<usize, usize>,
+    fixed_row_column_units: Vec<u32>,
+    nonfixed_row_column_units: Vec<u32>,
+    fixed_row_column_orbit_signature: String,
+    nonfixed_row_column_orbit_signature: String,
+    bundle_pair_count: usize,
+    active_bundle_count: usize,
+    active_row_marginal_count: usize,
+    row_pair_candidate_count: u128,
+    norm_compatible_row_pair_count: u128,
+    exact_row_pair_count: u128,
+    exact_pattern_log10: Option<f64>,
+    top_exact_samples: Vec<String>,
+}
+
 fn cyclic_multiplier_hypotheses(
     units: &[u32],
     modulus: u32,
@@ -837,7 +1070,9 @@ fn cyclic_multiplier_hypotheses(
         let column_units = sorted_residues(&subgroup, 37);
         let mod3_actions = sorted_residues(&subgroup, 3);
         let row_orbits = action_orbits_mod(9, &row_units, true);
+        let column_orbits = action_orbits_mod(37, &column_units, true);
         let row_orbit_signature = format_orbits(&row_orbits);
+        let column_orbit_signature = format_orbits(&column_orbits);
         let allowed_bundles = allowed_bundle_cache
             .entry(row_units.clone())
             .or_insert_with(|| row_bundle_triples_for_row_units(&row_units));
@@ -850,6 +1085,7 @@ fn cyclic_multiplier_hypotheses(
             column_units,
             mod3_actions,
             row_orbit_signature,
+            column_orbit_signature,
             allowed_bundle_count: allowed_bundles.len(),
             surviving_pair_count,
             surviving_mass,
@@ -1169,6 +1405,311 @@ fn top_cyclic_hypothesis_pair_sample_summaries(
             )
         })
         .collect()
+}
+
+fn top_cyclic_hypothesis_crt_component_summaries(
+    hypotheses: &[CyclicMultiplierHypothesis],
+    limit: usize,
+) -> Vec<String> {
+    let mut ranked = hypotheses
+        .iter()
+        .filter(|hypothesis| hypothesis.surviving_pair_count > 0)
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by(|a, b| {
+        b.surviving_mass
+            .cmp(&a.surviving_mass)
+            .then_with(|| b.surviving_pair_count.cmp(&a.surviving_pair_count))
+            .then_with(|| a.order.cmp(&b.order))
+            .then_with(|| a.subgroup.cmp(&b.subgroup))
+    });
+    ranked
+        .into_iter()
+        .take(limit)
+        .map(|hypothesis| {
+            format!(
+                "order={},subgroup_crt={},row_units={},col_units={},mod3={},row_orbits={},col_orbits={},allowed_bundles={},pairs={},mass={},pair_samples={}",
+                hypothesis.order,
+                format_crt_pair_list(&hypothesis.subgroup),
+                format_u32_list(&hypothesis.row_units),
+                format_u32_list(&hypothesis.column_units),
+                format_u32_list(&hypothesis.mod3_actions),
+                hypothesis.row_orbit_signature,
+                hypothesis.column_orbit_signature,
+                hypothesis.allowed_bundle_count,
+                hypothesis.surviving_pair_count,
+                hypothesis.surviving_mass,
+                hypothesis.top_pair_samples.join("|")
+            )
+        })
+        .collect()
+}
+
+fn row_units_147_invariant_row_lift_analysis(
+    pair_masses: &[RowBundlePairMass],
+    subgroup: &[u32],
+) -> RowUnits147InvariantRowLiftAnalysis {
+    debug_assert_eq!(sorted_residues(subgroup, 9), vec![1, 4, 7]);
+    let allowed_bundles = row_bundle_triples_for_row_units(&[1, 4, 7]);
+    let bundle_pairs = pair_masses
+        .iter()
+        .filter(|pair| {
+            allowed_bundles.contains(&pair.left) && allowed_bundles.contains(&pair.right)
+        })
+        .collect::<Vec<_>>();
+    let active_bundles = bundle_pairs
+        .iter()
+        .flat_map(|pair| [pair.left, pair.right])
+        .collect::<BTreeSet<_>>();
+    let table_orbits = crt_product_action_orbits(subgroup);
+    let fixed_row_column_units = row_stabilizer_column_units(subgroup, 0);
+    let nonfixed_row_column_units = row_stabilizer_column_units(subgroup, 1);
+    let fixed_row_column_orbit_signature =
+        format_orbits(&action_orbits_mod(37, &fixed_row_column_units, true));
+    let nonfixed_row_column_orbit_signature =
+        format_orbits(&action_orbits_mod(37, &nonfixed_row_column_units, true));
+    let mut pattern_count_cache = HashMap::<Vec<u32>, BTreeMap<i32, u128>>::new();
+    let mut marginal_cache = HashMap::new();
+    for bundle in &active_bundles {
+        marginal_cache.insert(
+            *bundle,
+            row_units_147_invariant_marginals_for_bundle(
+                *bundle,
+                subgroup,
+                &mut pattern_count_cache,
+            ),
+        );
+    }
+    let active_row_marginal_count = marginal_cache.values().map(Vec::len).sum();
+
+    let mut row_pair_candidate_count = 0u128;
+    let mut norm_compatible_row_pair_count = 0u128;
+    let mut exact_row_pair_count = 0u128;
+    let mut exact_pattern_log10 = None;
+    let mut top_exact_samples = Vec::<(f64, [i32; 9], [i32; 9])>::new();
+    for pair in &bundle_pairs {
+        let left_marginals = marginal_cache
+            .get(&pair.left)
+            .expect("active left bundle must have invariant marginals");
+        let right_marginals = marginal_cache
+            .get(&pair.right)
+            .expect("active right bundle must have invariant marginals");
+        row_pair_candidate_count += left_marginals.len() as u128 * right_marginals.len() as u128;
+        for left in left_marginals {
+            for right in right_marginals {
+                if left.norm + right.norm != LP333_ROW_NORM_TARGET {
+                    continue;
+                }
+                norm_compatible_row_pair_count += 1;
+                if !row_paf_pair_is_exact(&left.paf, &right.paf) {
+                    continue;
+                }
+                exact_row_pair_count += 1;
+                let pattern_log10 = left.pattern_log10 + right.pattern_log10;
+                exact_pattern_log10 = Some(log10_sum_optional(exact_pattern_log10, pattern_log10));
+                push_top_row_units_147_sample(
+                    &mut top_exact_samples,
+                    pattern_log10,
+                    left.rows,
+                    right.rows,
+                    5,
+                );
+            }
+        }
+    }
+
+    RowUnits147InvariantRowLiftAnalysis {
+        subgroup: subgroup.to_vec(),
+        table_orbit_count: table_orbits.len(),
+        table_orbit_size_distribution: size_distribution_usize(
+            &table_orbits.iter().map(Vec::len).collect::<Vec<_>>(),
+        ),
+        fixed_row_column_units,
+        nonfixed_row_column_units,
+        fixed_row_column_orbit_signature,
+        nonfixed_row_column_orbit_signature,
+        bundle_pair_count: bundle_pairs.len(),
+        active_bundle_count: active_bundles.len(),
+        active_row_marginal_count,
+        row_pair_candidate_count,
+        norm_compatible_row_pair_count,
+        exact_row_pair_count,
+        exact_pattern_log10,
+        top_exact_samples: top_exact_samples
+            .into_iter()
+            .map(|(log10_count, left, right)| {
+                format!(
+                    "log10_count={:.3}:{}|{}",
+                    log10_count,
+                    format_i32_list(&left),
+                    format_i32_list(&right)
+                )
+            })
+            .collect(),
+    }
+}
+
+fn row_units_147_invariant_marginals_for_bundle(
+    bundle: [i32; 3],
+    subgroup: &[u32],
+    pattern_count_cache: &mut HashMap<Vec<u32>, BTreeMap<i32, u128>>,
+) -> Vec<RowUnits147InvariantMarginal> {
+    if bundle[1] % 3 != 0 || bundle[2] % 3 != 0 {
+        return Vec::new();
+    }
+    let row_147 = bundle[1] / 3;
+    let row_258 = bundle[2] / 3;
+
+    let fixed_0_counts = row_pattern_counts_for_column_units(
+        &row_stabilizer_column_units(subgroup, 0),
+        pattern_count_cache,
+    );
+    let fixed_3_counts = row_pattern_counts_for_column_units(
+        &row_stabilizer_column_units(subgroup, 3),
+        pattern_count_cache,
+    );
+    let fixed_6_counts = row_pattern_counts_for_column_units(
+        &row_stabilizer_column_units(subgroup, 6),
+        pattern_count_cache,
+    );
+    let row_147_counts = row_pattern_counts_for_column_units(
+        &row_stabilizer_column_units(subgroup, 1),
+        pattern_count_cache,
+    );
+    let row_258_counts = row_pattern_counts_for_column_units(
+        &row_stabilizer_column_units(subgroup, 2),
+        pattern_count_cache,
+    );
+
+    let Some(row_147_count) = row_147_counts.get(&row_147).copied() else {
+        return Vec::new();
+    };
+    let Some(row_258_count) = row_258_counts.get(&row_258).copied() else {
+        return Vec::new();
+    };
+    let repeated_pattern_log10 = (row_147_count as f64).log10() + (row_258_count as f64).log10();
+
+    let mut marginals = Vec::new();
+    for (row_0, row_0_count) in &fixed_0_counts {
+        for (row_3, row_3_count) in &fixed_3_counts {
+            let row_6 = bundle[0] - row_0 - row_3;
+            let Some(row_6_count) = fixed_6_counts.get(&row_6).copied() else {
+                continue;
+            };
+            let rows = [
+                *row_0, row_147, row_258, *row_3, row_147, row_258, row_6, row_147, row_258,
+            ];
+            let pattern_log10 = (*row_0_count as f64).log10()
+                + (*row_3_count as f64).log10()
+                + (row_6_count as f64).log10()
+                + repeated_pattern_log10;
+            marginals.push(RowUnits147InvariantMarginal {
+                rows,
+                norm: dot9(rows, rows),
+                paf: paf9(rows),
+                pattern_log10,
+            });
+        }
+    }
+    marginals
+}
+
+fn row_pattern_counts_for_column_units(
+    column_units: &[u32],
+    cache: &mut HashMap<Vec<u32>, BTreeMap<i32, u128>>,
+) -> BTreeMap<i32, u128> {
+    let key = sorted_residues(column_units, 37);
+    if let Some(counts) = cache.get(&key) {
+        return counts.clone();
+    }
+    let mut counts = BTreeMap::from([(0i32, 1u128)]);
+    for orbit in action_orbits_mod(37, &key, true) {
+        let orbit_size = orbit.len() as i32;
+        let mut next = BTreeMap::new();
+        for (sum, count) in &counts {
+            *next.entry(sum + orbit_size).or_default() += count;
+            *next.entry(sum - orbit_size).or_default() += count;
+        }
+        counts = next;
+    }
+    cache.insert(key, counts.clone());
+    counts
+}
+
+fn row_stabilizer_column_units(subgroup: &[u32], row: u32) -> Vec<u32> {
+    subgroup
+        .iter()
+        .copied()
+        .filter(|unit| ((unit % 9) * row) % 9 == row)
+        .map(|unit| unit % 37)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn crt_product_action_orbits(subgroup: &[u32]) -> Vec<Vec<(u32, u32)>> {
+    let mut seen = [[false; 37]; 9];
+    let mut orbits = Vec::new();
+    for row in 0..9u32 {
+        for column in 0..37u32 {
+            if seen[row as usize][column as usize] {
+                continue;
+            }
+            let mut orbit = BTreeSet::from([(row, column)]);
+            let mut frontier = vec![(row, column)];
+            while let Some((current_row, current_column)) = frontier.pop() {
+                for unit in subgroup {
+                    let next = (
+                        (unit % 9) * current_row % 9,
+                        (unit % 37) * current_column % 37,
+                    );
+                    if orbit.insert(next) {
+                        frontier.push(next);
+                    }
+                }
+            }
+            for (orbit_row, orbit_column) in &orbit {
+                seen[*orbit_row as usize][*orbit_column as usize] = true;
+            }
+            orbits.push(orbit.into_iter().collect());
+        }
+    }
+    orbits.sort_unstable();
+    orbits
+}
+
+fn size_distribution_usize(sizes: &[usize]) -> BTreeMap<usize, usize> {
+    let mut dist = BTreeMap::new();
+    for size in sizes {
+        *dist.entry(*size).or_default() += 1;
+    }
+    dist
+}
+
+fn row_units_147_invariant_row_lift_summary(
+    analysis: &RowUnits147InvariantRowLiftAnalysis,
+) -> String {
+    let pattern_log10 = analysis
+        .exact_pattern_log10
+        .map(|value| format!("{value:.3}"))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "subgroup_crt={},table_orbits={},table_orbit_size_distribution={},fixed_row_col_units={},nonfixed_row_col_units={},fixed_row_col_orbits={},nonfixed_row_col_orbits={},bundle_pairs={},active_bundles={},active_row_marginals={},row_pair_candidates={},norm_compatible_row_pairs={},exact_row_pairs={},exact_pattern_log10={},top_exact_samples={}",
+        format_crt_pair_list(&analysis.subgroup),
+        analysis.table_orbit_count,
+        format_size_dist(&analysis.table_orbit_size_distribution),
+        format_u32_list(&analysis.fixed_row_column_units),
+        format_u32_list(&analysis.nonfixed_row_column_units),
+        analysis.fixed_row_column_orbit_signature,
+        analysis.nonfixed_row_column_orbit_signature,
+        analysis.bundle_pair_count,
+        analysis.active_bundle_count,
+        analysis.active_row_marginal_count,
+        analysis.row_pair_candidate_count,
+        analysis.norm_compatible_row_pair_count,
+        analysis.exact_row_pair_count,
+        pattern_log10,
+        analysis.top_exact_samples.join("|")
+    )
 }
 
 fn row_units_147_full_row_lift_analysis(
@@ -1580,6 +2121,10 @@ fn col10_orbit_autocorr_values(row_sum: i32) -> BTreeSet<i32> {
 }
 
 fn build_col10_orbit_autocorr_table() -> HashMap<i32, BTreeSet<i32>> {
+    // Nonfixed rows in the order-3 mixed multiplier branch are not themselves
+    // fixed by column multiplication by 10. They are arbitrary rows whose three
+    // row-orbit copies are tied by that multiplication, so this table must range
+    // over all assignments inside each multiplication orbit.
     let orbits = col10_column_orbits();
     let orbit_lookup = col10_orbit_lookup(&orbits);
     let domains = col10_orbit_domains(&orbits);
@@ -1770,7 +2315,6 @@ fn col10_orbit_edge_energy(
             }
         }
     }
-    debug_assert_eq!(energy % 1, 0);
     debug_assert!(left_orbit < orbits.len());
     debug_assert!(right_orbit < orbits.len());
     energy
@@ -5579,7 +6123,7 @@ fn usage(message: &str) -> String {
     };
     let usage_label = colorize_label("usage:", LABEL_COLOR);
     format!(
-        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
+        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
     )
 }
 
@@ -5683,12 +6227,13 @@ fn _assert_path_is_relative(path: &str) -> bool {
 mod tests {
     use super::{
         col10_fixed_shift1_values, col10_fixed_triple_dot_sum_values, col10_self_dot_values,
-        parse_lp_search_file_config, row_bundle_pair_survival, row_bundle_triples_for_row_units,
-        row_mod3_bundle_pair_masses, row_units_147_full_row_lift_analysis,
-        row_units_147_shift0_dot_marginal_feasible, RowUnits147Marginal, LP333_ACTUAL_SHIFT_TARGET,
-        LP333_ROW_SHIFT_TARGET,
+        cyclic_multiplier_hypotheses, parse_lp_search_file_config, row_bundle_pair_survival,
+        row_bundle_triples_for_row_units, row_mod3_bundle_pair_masses,
+        row_units_147_full_row_lift_analysis, row_units_147_invariant_row_lift_analysis,
+        row_units_147_shift0_dot_marginal_feasible, top_cyclic_hypothesis_crt_component_summaries,
+        units_mod, RowUnits147Marginal, LP333_ACTUAL_SHIFT_TARGET, LP333_ROW_SHIFT_TARGET,
     };
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn lp_search_config_parser_reads_key_value_file() {
@@ -5753,6 +6298,216 @@ mod tests {
             lift.col10_shift0_e3_pattern_log10,
             Some(value) if (value - 60.818).abs() < 0.001
         ));
+    }
+
+    #[test]
+    #[ignore = "exact arbitrary-row col10 shift-1 table takes about 3 minutes"]
+    fn multiplier_row_units_147_full_row_lift_with_col10_shift1_matches_corrected_counts() {
+        let pairs = row_mod3_bundle_pair_masses();
+        let lift = row_units_147_full_row_lift_analysis(&pairs, true);
+        assert_eq!(lift.bundle_pair_count, 12);
+        assert_eq!(lift.active_bundle_count, 7);
+        assert_eq!(lift.active_row_marginal_count, 7_467);
+        assert_eq!(lift.row_pair_candidate_count, 13_764_060);
+        assert_eq!(lift.norm_compatible_row_pair_count, 6_048);
+        assert_eq!(lift.exact_row_pair_count, 6_048);
+        assert_eq!(lift.shift0_dot_marginal_feasible_row_pair_count, 0);
+        assert_eq!(lift.col10_fixed_rows_exact_row_pair_count, 1_296);
+        assert_eq!(lift.col10_shift0_e3_feasible_row_pair_count, 1_296);
+        assert_eq!(lift.col10_shift1_feasible_row_pair_count, 1_296);
+        assert!(matches!(
+            lift.col10_shift1_pattern_log10,
+            Some(value) if (value - 60.818).abs() < 0.001
+        ));
+    }
+
+    #[test]
+    fn multiplier_crt_component_view_summarizes_row_units_147_hypotheses() {
+        let pairs = row_mod3_bundle_pair_masses();
+        let hypotheses = cyclic_multiplier_hypotheses(&units_mod(333), 333, &pairs);
+        let row_units_147 = hypotheses
+            .iter()
+            .filter(|hypothesis| hypothesis.row_units.as_slice() == [1, 4, 7])
+            .cloned()
+            .collect::<Vec<_>>();
+        let summaries = top_cyclic_hypothesis_crt_component_summaries(&row_units_147, 3);
+        assert!(!summaries.is_empty());
+        assert!(summaries[0].contains("subgroup_crt="));
+        assert!(summaries[0].contains("row_units=1,4,7"));
+        assert_eq!(row_units_147.len(), 15);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 3).count(), 3);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 6).count(), 3);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 9).count(), 2);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 12).count(), 3);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 18).count(), 2);
+        assert_eq!(row_units_147.iter().filter(|h| h.order == 36).count(), 2);
+        assert_eq!(
+            row_units_147
+                .iter()
+                .filter(|h| h.order == 3)
+                .filter(|h| h.column_units.as_slice() == [1]
+                    || h.column_units.as_slice() == [1, 10, 26])
+                .count(),
+            3
+        );
+        assert_eq!(
+            row_units_147
+                .iter()
+                .filter(|h| h.order == 6)
+                .filter(|h| h.column_units.as_slice() == [1, 36]
+                    || h.column_units.as_slice() == [1, 10, 11, 26, 27, 36])
+                .count(),
+            3
+        );
+        assert_eq!(
+            row_units_147
+                .iter()
+                .filter(|h| h.order == 3 && h.column_units.as_slice() != [1])
+                .count(),
+            2
+        );
+        assert_eq!(
+            row_units_147
+                .iter()
+                .filter(|h| h.order == 6 && h.column_units.as_slice() != [1, 36])
+                .count(),
+            2
+        );
+        let mixed_crt_targets = row_units_147
+            .iter()
+            .filter(|h| {
+                (h.order == 3 && h.column_units.as_slice() != [1])
+                    || (h.order == 6 && h.column_units.as_slice() != [1, 36])
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(mixed_crt_targets.len(), 4);
+        assert_eq!(mixed_crt_targets.iter().filter(|h| h.order == 3).count(), 2);
+        assert_eq!(mixed_crt_targets.iter().filter(|h| h.order == 6).count(), 2);
+        assert!(mixed_crt_targets
+            .iter()
+            .all(|h| h.surviving_pair_count == 12));
+        assert!(mixed_crt_targets
+            .iter()
+            .all(|h| h.surviving_mass == 119_903_105_952));
+        assert!(mixed_crt_targets
+            .iter()
+            .all(|h| h.row_orbit_signature == "0|1,4,7|2,5,8|3|6"));
+        assert!(mixed_crt_targets
+            .iter()
+            .all(|h| h.allowed_bundle_count == 1064));
+        let mixed_summaries = top_cyclic_hypothesis_crt_component_summaries(&mixed_crt_targets, 4);
+        assert!(mixed_summaries
+            .iter()
+            .any(|summary| summary.contains("subgroup_crt=(1,1),(4,10),(7,26)")));
+        assert!(mixed_summaries
+            .iter()
+            .any(|summary| summary.contains("subgroup_crt=(1,1),(4,26),(7,10)")));
+        assert!(mixed_summaries.iter().any(
+            |summary| summary.contains("subgroup_crt=(1,1),(1,36),(4,11),(4,26),(7,10),(7,27)")
+        ));
+        assert!(mixed_summaries.iter().any(
+            |summary| summary.contains("subgroup_crt=(1,1),(1,36),(4,10),(4,27),(7,11),(7,26)")
+        ));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("pairs=")));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("mass=")));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("row_orbits=")));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("col_orbits=")));
+        let mixed_col_orbits = mixed_summaries
+            .iter()
+            .map(|summary| {
+                summary
+                    .split_once("col_orbits=")
+                    .map(|(_, orbits)| {
+                        orbits
+                            .split(",allowed_bundles=")
+                            .next()
+                            .unwrap()
+                            .to_string()
+                    })
+                    .unwrap()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(mixed_col_orbits.len(), 2);
+        assert!(mixed_col_orbits.iter().any(|orbits| {
+            orbits == "0|1,10,26|2,15,20|3,4,30|5,13,19|6,8,23|7,33,34|9,12,16|11,27,36|14,29,31|17,22,35|18,24,32|21,25,28"
+        }));
+        assert!(mixed_col_orbits.iter().any(|orbits| {
+            orbits == "0|1,10,11,26,27,36|2,15,17,20,22,35|3,4,7,30,33,34|5,13,18,19,24,32|6,8,14,23,29,31|9,12,16,21,25,28"
+        }));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("allowed_bundles=")));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("pair_samples=")));
+        assert!(mixed_summaries
+            .iter()
+            .all(|summary| summary.contains("subgroup_crt=")));
+        let mixed_pair_samples = mixed_summaries
+            .iter()
+            .map(|summary| {
+                summary
+                    .split_once("pair_samples=")
+                    .map(|(_, samples)| samples.to_string())
+                    .unwrap()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(mixed_pair_samples.len(), 1);
+        assert!(mixed_pair_samples
+            .iter()
+            .next()
+            .is_some_and(|samples| samples.starts_with("9991925496:")));
+        assert!(summaries
+            .iter()
+            .any(|summary| summary.contains("col_units=1,10,26")));
+
+        let mixed_lifts = mixed_crt_targets
+            .iter()
+            .map(|hypothesis| {
+                row_units_147_invariant_row_lift_analysis(&pairs, &hypothesis.subgroup)
+            })
+            .collect::<Vec<_>>();
+        let order_3_lifts = mixed_lifts
+            .iter()
+            .filter(|lift| lift.subgroup.len() == 3)
+            .collect::<Vec<_>>();
+        let order_6_lifts = mixed_lifts
+            .iter()
+            .filter(|lift| lift.subgroup.len() == 6)
+            .collect::<Vec<_>>();
+        assert_eq!(order_3_lifts.len(), 2);
+        assert_eq!(order_6_lifts.len(), 2);
+        assert!(order_3_lifts.iter().all(|lift| {
+            lift.table_orbit_count == 113
+                && lift.table_orbit_size_distribution == BTreeMap::from([(1, 3), (3, 110)])
+                && lift.fixed_row_column_units == [1, 10, 26]
+                && lift.nonfixed_row_column_units == [1]
+                && lift.active_row_marginal_count == 2_628
+                && lift.row_pair_candidate_count == 1_701_000
+                && lift.norm_compatible_row_pair_count == 1_296
+                && lift.exact_row_pair_count == 1_296
+                && matches!(lift.exact_pattern_log10, Some(value) if (value - 60.818).abs() < 0.001)
+        }));
+        assert!(order_6_lifts.iter().all(|lift| {
+            lift.table_orbit_count == 59
+                && lift.table_orbit_size_distribution == BTreeMap::from([(1, 3), (3, 2), (6, 54)])
+                && lift.fixed_row_column_units == [1, 10, 11, 26, 27, 36]
+                && lift.nonfixed_row_column_units == [1, 36]
+                && lift.active_row_marginal_count == 216
+                && lift.row_pair_candidate_count == 0
+                && lift.norm_compatible_row_pair_count == 0
+                && lift.exact_row_pair_count == 0
+                && lift.exact_pattern_log10.is_none()
+        }));
     }
 
     #[test]

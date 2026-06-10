@@ -331,12 +331,19 @@ The multiplier line now has a first careful screen rather than only a roadmap it
 - the next mixed marginal, actual CRT shift `(0,1)`, now has an opt-in exact frontier-DP scaffold:
   - command: `hadamard analyze lp333-multiplier --col10-shift1`
   - the default analyzer deliberately reports this path as skipped because the current exact DP is still too slow for routine checkpointing
-  - a direct opt-in run was attempted, but it did not complete quickly enough to be a recorded result
-  - no `(0,1)` pruning result is recorded yet
+  - a previous fast `2^13` table result is no longer treated as recorded: it only enumerated rows fixed by column multiplication by `10`, while the nonfixed order-`3` row orbits require arbitrary base rows whose copies are column-multiplied
+  - the arbitrary-row table has been restored; the corrected targeted run takes about `176s` and leaves all `1,296` fixed-row-compatible row-marginal pairs alive, so `(0,1)` adds no sound pruning at this marginal level
+- the multiplier analyzer now also has an opt-in CRT component orbit view:
+  - command: `hadamard analyze lp333-multiplier --crt-components`
+  - it prints the multiplier orbits in `(mod 9, mod 37)` form and a focused `row_units={1,4,7}` hypothesis summary so the branch can be inspected directly in product-group coordinates
+  - the focused `row_units={1,4,7}` family currently has `15` surviving hypotheses, split across subgroup orders `3,6,9,12,18,36`
+  - the order-`3` survivors split into column units `[1]` and `[1,10,26]`; the order-`6` survivors split into `[1,36]` and `[1,10,11,26,27,36]`
+  - the mixed-CRT next target is now the four hypotheses in `crt_component_mixed_crt_targets`, with order split `3:2,6:2`; the summary now also carries `pairs`, `mass`, `pair_samples`, and `col_orbits`, but those four targets currently tie on `pairs=12`, `mass=119903105952`, `row_orbits=0|1,4,7|2,5,8|3|6`, `allowed_bundles=1064`, and the same top pair samples; `col_orbits` only separates the order-`3` and order-`6` buckets, and the remaining distinction is the explicit `subgroup_crt` label
+  - a new actual invariant-row-stabilizer lift now separates those four mixed targets: the two order-`3` targets have `113` invariant table orbits (`1:3,3:110`) and reproduce the `1,296` exact row-pair survivors with aggregate mass about `10^60.818`; the two order-`6` targets have `59` invariant table orbits (`1:3,3:2,6:54`) but their stronger row stabilizer leaves `0` row-pair candidates after the active bundle-pair join
 - representative order-`3` row-action subgroups that remain worth testing are therefore the non-column-trivial cases such as `{1,121,322}` and `{1,211,232}`
 - representative oriented bundle samples include `[-5,-9,15] | [-5,-3,9]` and `[-5,-9,15] | [-5,9,-3]`
-- this gives a concrete optional multiplier-invariant row-action family to test next, while also ruling out both the tempting full column-preserving assumption and the cleanest column-trivial order-`3` representative
-- the next hard question is whether the non-column-trivial `row_units={1,4,7}` subgroups survive actual row-pattern assignment plus mixed CRT constraints; fixed-row representability alone does not decide that
+- this gives a concrete optional multiplier-invariant row-action family to test next, while also ruling out the tempting full column-preserving assumption, the cleanest column-trivial order-`3` representative, and the nontrivial order-`6` mixed targets
+- the next hard question is whether the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups survive coupled mixed CRT constraints beyond actual invariant row-pattern assignment; corrected single-shift marginals do not decide that
 
 So the next exact-lift prototype does not need to start as a generic residual-bundle solver. The better framing is an orbit-level lift staged on an `11`-orbit core, with those three hub orbits treated as the first high-priority centers and with batching focused on the downstream `W` frontier rather than on pre-`W` `UV` reuse.
 
