@@ -115,6 +115,16 @@ Current measured picture:
   - the corrected exact run takes about `176s` in the targeted test and leaves all
     `1,296` fixed-row-compatible row-marginal pairs alive, so `(0,1)` adds no sound
     pruning at this marginal level
+  - a relaxed coupled `(3,0)+(0,1)` check now exists behind
+    `hadamard analyze lp333-multiplier --col10-coupled`; it couples the arbitrary
+    nonfixed row-orbit base rows through a joint table, still relaxes fixed-row
+    coupling, and also keeps all `1,296` fixed-row-compatible row-marginal pairs
+    (`147` cached sequence joint sets, max set size `2,426`)
+  - direct exact-fixed-row coupling was attempted with both a naive three-fixed-row
+    frontier and a shared fixed-triple target table narrowed to the exact
+    fixed-row-compatible survivors; neither produced a full stats line in a useful
+    debug window, so this path needs a more compressed state representation before
+    it should become a public analyzer path
   - a companion opt-in CRT component view is now available behind
     `hadamard analyze lp333-multiplier --crt-components`
     and prints the coordinate orbits as `(mod 9, mod 37)` residue pairs plus a focused
@@ -135,6 +145,17 @@ Current measured picture:
     `59` invariant table orbits with size distribution `1:3,3:2,6:54`, but their
     stronger row stabilizer leaves `0` row-pair candidates after the active
     bundle-pair join
+  - a bounded actual shift `(3,1)` graph diagnostic now exists behind
+    `hadamard analyze lp333-multiplier --invariant-shift31`; for the two surviving
+    order-`3` targets it reports the same `1,296` exact row-pair survivors, only
+    `42` fixed-row triple targets, and only `6` nonfixed row-sum targets, but the
+    nonfixed row-orbit graph has `37` Boolean variables, `105` edges, weighted edge
+    count `108`, max degree `6`, and min-fill width `9` to `10`; the fixed-row graph
+    is smaller at `13` variables, domain `8`, `32` edges, weighted edge count `35`,
+    and min-fill width `5`
+  - the same diagnostic now prints the concrete min-fill orders and bag scales:
+    fixed-row max bag domain states `262,144`; nonfixed max bag domain states
+    `2,048` for column generator `10` and `1,024` for column generator `26`
 - Representative surviving order-`3` hypotheses include subgroups
   `{1,121,322}` and `{1,211,232}` after removing the column-trivial representative
   `{1,112,223}`.
@@ -153,7 +174,11 @@ Interpretation:
 - The immediate next blocker is not the pure row-sum marginal or fixed-row
   representability anymore. It is lifting the surviving non-column-trivial
   order-`3` `row_units={1,4,7}` subgroups to actual invariant `9 x 37` sign tables
-  while enforcing coupled mixed CRT character constraints.
+  while enforcing exactly coupled mixed CRT character constraints.
+- The implementation lesson from the shift `(3,1)` graph is now sharper: the target
+  alphabet is small, a naive row-sum/energy DP is still the wrong shape, but the
+  min-fill bag-domain bounds are small enough to justify a real graph-structured
+  exact solver before reaching for a heavier transform.
 
 ### Paper-first tasks
 

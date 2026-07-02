@@ -333,6 +333,11 @@ The multiplier line now has a first careful screen rather than only a roadmap it
   - the default analyzer deliberately reports this path as skipped because the current exact DP is still too slow for routine checkpointing
   - a previous fast `2^13` table result is no longer treated as recorded: it only enumerated rows fixed by column multiplication by `10`, while the nonfixed order-`3` row orbits require arbitrary base rows whose copies are column-multiplied
   - the arbitrary-row table has been restored; the corrected targeted run takes about `176s` and leaves all `1,296` fixed-row-compatible row-marginal pairs alive, so `(0,1)` adds no sound pruning at this marginal level
+- the first coupled mixed-shift relaxation now exists:
+  - command: `hadamard analyze lp333-multiplier --col10-coupled`
+  - it couples the arbitrary nonfixed row-orbit base rows through a joint `(multiplier self-dot, additive-autocorrelation)` table, while still relaxing the fixed rows by combining their `(3,0)` and `(0,1)` possibilities independently
+  - it also keeps all `1,296` fixed-row-compatible row-marginal pairs; the run built `147` cached sequence joint sets, with maximum joint-set size `2,426`
+  - direct exact-fixed-row coupling was tried next, first with a naive three-fixed-row frontier and then with a shared fixed-triple target table narrowed to the exact fixed-row-compatible survivors; neither produced a full stats line in a useful debug window, so no public exact-fixed analyzer flag was kept
 - the multiplier analyzer now also has an opt-in CRT component orbit view:
   - command: `hadamard analyze lp333-multiplier --crt-components`
   - it prints the multiplier orbits in `(mod 9, mod 37)` form and a focused `row_units={1,4,7}` hypothesis summary so the branch can be inspected directly in product-group coordinates
@@ -340,12 +345,31 @@ The multiplier line now has a first careful screen rather than only a roadmap it
   - the order-`3` survivors split into column units `[1]` and `[1,10,26]`; the order-`6` survivors split into `[1,36]` and `[1,10,11,26,27,36]`
   - the mixed-CRT next target is now the four hypotheses in `crt_component_mixed_crt_targets`, with order split `3:2,6:2`; the summary now also carries `pairs`, `mass`, `pair_samples`, and `col_orbits`, but those four targets currently tie on `pairs=12`, `mass=119903105952`, `row_orbits=0|1,4,7|2,5,8|3|6`, `allowed_bundles=1064`, and the same top pair samples; `col_orbits` only separates the order-`3` and order-`6` buckets, and the remaining distinction is the explicit `subgroup_crt` label
   - a new actual invariant-row-stabilizer lift now separates those four mixed targets: the two order-`3` targets have `113` invariant table orbits (`1:3,3:110`) and reproduce the `1,296` exact row-pair survivors with aggregate mass about `10^60.818`; the two order-`6` targets have `59` invariant table orbits (`1:3,3:2,6:54`) but their stronger row stabilizer leaves `0` row-pair candidates after the active bundle-pair join
+- a bounded actual mixed-shift diagnostic now profiles shift `(3,1)` for the two
+  surviving order-`3` targets:
+  - command: `hadamard analyze lp333-multiplier --invariant-shift31`
+  - it is a graph/target-size diagnostic, not a full exact feasibility enumerator
+  - both order-`3` targets still have `1,296` exact row-pair survivors
+  - the survivor set induces only `42` distinct fixed-row triple targets and `6`
+    distinct nonfixed row-sum targets
+  - the fixed-row shift graph is modest:
+    `vars=13,domain=8,edges=32,weighted_edges=35,self_terms=2,max_degree=6,min_fill_width=5`
+  - the fixed-row min-fill profile adds only `7` fill edges, has bag-size
+    distribution `1:1,2:1,3:2,4:3,5:5,6:1`, and a max bag domain-state
+    bound of `262,144`
+  - the nonfixed row-orbit shift `(3,1)` graph is the hard side:
+    `vars=37,domain=2,edges=105,weighted_edges=108,self_terms=3,max_degree=6`,
+    with min-fill width `10` for column generator `10` and `9` for column
+    generator `26`
+  - the nonfixed min-fill profiles have max bag domain-state bounds `2,048`
+    and `1,024`, respectively, and the analyzer now prints the concrete
+    elimination orders needed for a bag-DP implementation
 - representative order-`3` row-action subgroups that remain worth testing are therefore the non-column-trivial cases such as `{1,121,322}` and `{1,211,232}`
 - representative oriented bundle samples include `[-5,-9,15] | [-5,-3,9]` and `[-5,-9,15] | [-5,9,-3]`
 - this gives a concrete optional multiplier-invariant row-action family to test next, while also ruling out the tempting full column-preserving assumption, the cleanest column-trivial order-`3` representative, and the nontrivial order-`6` mixed targets
-- the next hard question is whether the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups survive coupled mixed CRT constraints beyond actual invariant row-pattern assignment; corrected single-shift marginals do not decide that
+- the next hard question is whether the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups survive an actual invariant sign-table assignment; corrected single-shift marginals and the first relaxed two-shift coupling do not decide that, and the `(3,1)` graph profile now makes a min-fill bag-DP the concrete next exact state representation rather than another raw value table
 
-So the next exact-lift prototype does not need to start as a generic residual-bundle solver. The better framing is an orbit-level lift staged on an `11`-orbit core, with those three hub orbits treated as the first high-priority centers and with batching focused on the downstream `W` frontier rather than on pre-`W` `UV` reuse.
+So the next exact-lift prototype does not need to start as a generic residual-bundle solver. The better framing is an orbit-level lift staged on an `11`-orbit core, with those three hub orbits treated as the first high-priority centers and with batching focused on the downstream `W` frontier rather than on pre-`W` `UV` reuse; for the multiplier-invariant branch specifically, the immediate prototype should use the printed min-fill orders and small bag-domain bounds to couple the fixed and nonfixed invariant sign-table assignments exactly.
 
 ## What Failed, And Why That Matters
 

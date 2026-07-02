@@ -180,12 +180,21 @@ fn cmd_analyze_lp333_multiplier(args: Vec<String>) -> Result<(), String> {
     }
     let include_col10_shift1 = args.iter().any(|arg| arg == "--col10-shift1");
     let include_crt_components = args.iter().any(|arg| arg == "--crt-components");
-    print_lp333_multiplier_analysis(include_col10_shift1, include_crt_components)
+    let include_col10_coupled = args.iter().any(|arg| arg == "--col10-coupled");
+    let include_invariant_shift31 = args.iter().any(|arg| arg == "--invariant-shift31");
+    print_lp333_multiplier_analysis(
+        include_col10_shift1,
+        include_crt_components,
+        include_col10_coupled,
+        include_invariant_shift31,
+    )
 }
 
 fn print_lp333_multiplier_analysis(
     include_col10_shift1: bool,
     include_crt_components: bool,
+    include_col10_coupled: bool,
+    include_invariant_shift31: bool,
 ) -> Result<(), String> {
     let n = 333u32;
     let (p, q) = (9u32, 37u32);
@@ -221,25 +230,7 @@ fn print_lp333_multiplier_analysis(
     println!("min_coordinate_orbit_size={min_orbit}");
     println!("max_coordinate_orbit_size={max_orbit}");
     let row_bundle_pair_masses = row_mod3_bundle_pair_masses();
-    if include_crt_components {
-        println!();
-        println!("# CRT component orbit view");
-        println!("# Each coordinate orbit is shown as residue pairs (mod 9, mod 37)");
-        println!("crt_component_orbit_count={}", coord_orbits.len());
-        println!(
-            "crt_component_orbit_size_distribution={}",
-            format_size_dist(&orbit_size_dist)
-        );
-        for (i, orbit) in coord_orbits.iter().take(8).enumerate() {
-            println!(
-                "crt_component_orbit_{i}={}",
-                orbit
-                    .iter()
-                    .map(|value| format!("({},{})", value % p, value % q))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-        }
+    if include_crt_components || include_invariant_shift31 {
         let cyclic_hypotheses = cyclic_multiplier_hypotheses(&units, n, &row_bundle_pair_masses);
         let row_units_147_hypotheses = cyclic_hypotheses
             .iter()
@@ -271,124 +262,162 @@ fn print_lp333_multiplier_analysis(
             .filter(|hypothesis| hypothesis.row_units.as_slice() != [1])
             .cloned()
             .collect::<Vec<_>>();
-        println!(
-            "crt_component_nontrivial_row_action_hypotheses={}",
-            top_cyclic_hypothesis_crt_component_summaries(&nontrivial_row_action_hypotheses, 8)
+        if include_crt_components {
+            println!();
+            println!("# CRT component orbit view");
+            println!("# Each coordinate orbit is shown as residue pairs (mod 9, mod 37)");
+            println!("crt_component_orbit_count={}", coord_orbits.len());
+            println!(
+                "crt_component_orbit_size_distribution={}",
+                format_size_dist(&orbit_size_dist)
+            );
+            for (i, orbit) in coord_orbits.iter().take(8).enumerate() {
+                println!(
+                    "crt_component_orbit_{i}={}",
+                    orbit
+                        .iter()
+                        .map(|value| format!("({},{})", value % p, value % q))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+            println!(
+                "crt_component_nontrivial_row_action_hypotheses={}",
+                top_cyclic_hypothesis_crt_component_summaries(&nontrivial_row_action_hypotheses, 8)
+                    .join(";")
+            );
+            println!(
+                "crt_component_row_units_147_hypotheses={}",
+                top_cyclic_hypothesis_crt_component_summaries(&row_units_147_hypotheses, 8)
+                    .join(";")
+            );
+            println!(
+                "crt_component_row_units_147_hypothesis_count={}",
+                row_units_147_hypotheses.len()
+            );
+            println!(
+                "crt_component_row_units_147_column_units_distribution={}",
+                format_vec_distribution(
+                    &row_units_147_hypotheses
+                        .iter()
+                        .map(|hypothesis| hypothesis.column_units.clone())
+                        .collect::<Vec<_>>()
+                )
+            );
+            println!(
+                "crt_component_row_units_147_order_distribution={}",
+                format_usize_distribution(
+                    &row_units_147_hypotheses
+                        .iter()
+                        .map(|hypothesis| hypothesis.order)
+                        .collect::<Vec<_>>()
+                )
+            );
+            println!(
+                "crt_component_row_units_147_order_3_column_units_distribution={}",
+                format_vec_distribution(
+                    &row_units_147_order_3_hypotheses
+                        .iter()
+                        .map(|hypothesis| hypothesis.column_units.clone())
+                        .collect::<Vec<_>>()
+                )
+            );
+            println!(
+                "crt_component_row_units_147_order_6_column_units_distribution={}",
+                format_vec_distribution(
+                    &row_units_147_order_6_hypotheses
+                        .iter()
+                        .map(|hypothesis| hypothesis.column_units.clone())
+                        .collect::<Vec<_>>()
+                )
+            );
+            println!(
+                "crt_component_row_units_147_order_3_nontrivial_hypothesis_count={}",
+                row_units_147_order_3_nontrivial_hypotheses.len()
+            );
+            println!(
+                "crt_component_row_units_147_order_6_nontrivial_hypothesis_count={}",
+                row_units_147_order_6_nontrivial_hypotheses.len()
+            );
+            println!(
+                "crt_component_row_units_147_order_3_nontrivial_hypotheses={}",
+                top_cyclic_hypothesis_crt_component_summaries(
+                    &row_units_147_order_3_nontrivial_hypotheses,
+                    8
+                )
                 .join(";")
-        );
-        println!(
-            "crt_component_row_units_147_hypotheses={}",
-            top_cyclic_hypothesis_crt_component_summaries(&row_units_147_hypotheses, 8).join(";")
-        );
-        println!(
-            "crt_component_row_units_147_hypothesis_count={}",
-            row_units_147_hypotheses.len()
-        );
-        println!(
-            "crt_component_row_units_147_column_units_distribution={}",
-            format_vec_distribution(
-                &row_units_147_hypotheses
-                    .iter()
-                    .map(|hypothesis| hypothesis.column_units.clone())
-                    .collect::<Vec<_>>()
-            )
-        );
-        println!(
-            "crt_component_row_units_147_order_distribution={}",
-            format_usize_distribution(
-                &row_units_147_hypotheses
-                    .iter()
-                    .map(|hypothesis| hypothesis.order)
-                    .collect::<Vec<_>>()
-            )
-        );
-        println!(
-            "crt_component_row_units_147_order_3_column_units_distribution={}",
-            format_vec_distribution(
-                &row_units_147_order_3_hypotheses
-                    .iter()
-                    .map(|hypothesis| hypothesis.column_units.clone())
-                    .collect::<Vec<_>>()
-            )
-        );
-        println!(
-            "crt_component_row_units_147_order_6_column_units_distribution={}",
-            format_vec_distribution(
-                &row_units_147_order_6_hypotheses
-                    .iter()
-                    .map(|hypothesis| hypothesis.column_units.clone())
-                    .collect::<Vec<_>>()
-            )
-        );
-        println!(
-            "crt_component_row_units_147_order_3_nontrivial_hypothesis_count={}",
-            row_units_147_order_3_nontrivial_hypotheses.len()
-        );
-        println!(
-            "crt_component_row_units_147_order_6_nontrivial_hypothesis_count={}",
-            row_units_147_order_6_nontrivial_hypotheses.len()
-        );
-        println!(
-            "crt_component_row_units_147_order_3_nontrivial_hypotheses={}",
-            top_cyclic_hypothesis_crt_component_summaries(
-                &row_units_147_order_3_nontrivial_hypotheses,
-                8
-            )
-            .join(";")
-        );
-        println!(
-            "crt_component_row_units_147_order_6_nontrivial_hypotheses={}",
-            top_cyclic_hypothesis_crt_component_summaries(
-                &row_units_147_order_6_nontrivial_hypotheses,
-                8
-            )
-            .join(";")
-        );
-        let mixed_crt_targets = row_units_147_order_3_nontrivial_hypotheses
-            .iter()
-            .chain(row_units_147_order_6_nontrivial_hypotheses.iter())
-            .cloned()
-            .collect::<Vec<_>>();
-        println!(
-            "crt_component_mixed_crt_targets={}",
-            top_cyclic_hypothesis_crt_component_summaries(&mixed_crt_targets, 8).join(";")
-        );
-        println!(
-            "crt_component_mixed_crt_target_subgroups={}",
-            mixed_crt_targets
+            );
+            println!(
+                "crt_component_row_units_147_order_6_nontrivial_hypotheses={}",
+                top_cyclic_hypothesis_crt_component_summaries(
+                    &row_units_147_order_6_nontrivial_hypotheses,
+                    8
+                )
+                .join(";")
+            );
+            let mixed_crt_targets = row_units_147_order_3_nontrivial_hypotheses
                 .iter()
-                .map(|hypothesis| format_crt_pair_list(&hypothesis.subgroup))
-                .collect::<Vec<_>>()
-                .join(";")
-        );
-        println!(
-            "crt_component_mixed_crt_target_count={}",
-            mixed_crt_targets.len()
-        );
-        println!(
-            "crt_component_mixed_crt_target_order_distribution={}",
-            format_usize_distribution(
-                &mixed_crt_targets
+                .chain(row_units_147_order_6_nontrivial_hypotheses.iter())
+                .cloned()
+                .collect::<Vec<_>>();
+            println!(
+                "crt_component_mixed_crt_targets={}",
+                top_cyclic_hypothesis_crt_component_summaries(&mixed_crt_targets, 8).join(";")
+            );
+            println!(
+                "crt_component_mixed_crt_target_subgroups={}",
+                mixed_crt_targets
                     .iter()
-                    .map(|hypothesis| hypothesis.order)
+                    .map(|hypothesis| format_crt_pair_list(&hypothesis.subgroup))
                     .collect::<Vec<_>>()
-            )
-        );
-        println!(
-            "crt_component_mixed_crt_invariant_row_lifts={}",
-            mixed_crt_targets
-                .iter()
-                .map(|hypothesis| {
-                    row_units_147_invariant_row_lift_summary(
-                        &row_units_147_invariant_row_lift_analysis(
-                            &row_bundle_pair_masses,
-                            &hypothesis.subgroup,
-                        ),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(";")
-        );
+                    .join(";")
+            );
+            println!(
+                "crt_component_mixed_crt_target_count={}",
+                mixed_crt_targets.len()
+            );
+            println!(
+                "crt_component_mixed_crt_target_order_distribution={}",
+                format_usize_distribution(
+                    &mixed_crt_targets
+                        .iter()
+                        .map(|hypothesis| hypothesis.order)
+                        .collect::<Vec<_>>()
+                )
+            );
+            println!(
+                "crt_component_mixed_crt_invariant_row_lifts={}",
+                mixed_crt_targets
+                    .iter()
+                    .map(|hypothesis| {
+                        row_units_147_invariant_row_lift_summary(
+                            &row_units_147_invariant_row_lift_analysis(
+                                &row_bundle_pair_masses,
+                                &hypothesis.subgroup,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";")
+            );
+        }
+        if include_invariant_shift31 {
+            println!(
+                "crt_component_row_units_147_order_3_invariant_shift31_graphs={}",
+                row_units_147_order_3_nontrivial_hypotheses
+                    .iter()
+                    .map(|hypothesis| {
+                        row_units_147_invariant_shift31_graph_summary(
+                            &row_units_147_invariant_shift31_graph_analysis(
+                                &row_bundle_pair_masses,
+                                &hypothesis.subgroup,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";")
+            );
+        }
     }
 
     // 3. CRT-factored orbit analysis
@@ -702,6 +731,19 @@ fn print_lp333_multiplier_analysis(
             row_units_147_lift.top_col10_shift1_samples.join(";")
         );
     }
+    if include_col10_coupled {
+        let coupled_analysis = row_units_147_col10_coupled_shift_analysis(&row_bundle_pair_masses);
+        println!(
+            "row_units_147_col10_coupled_shift_stats={}",
+            row_units_147_col10_coupled_shift_summary(&coupled_analysis)
+        );
+        if !coupled_analysis.top_feasible_samples.is_empty() {
+            println!(
+                "row_units_147_col10_coupled_shift_top_samples={}",
+                coupled_analysis.top_feasible_samples.join(";")
+            );
+        }
+    }
 
     // 12. Full multiplier orbit on the 42 dihedral-swap pair orbits
     // The multiplier action on bundles [a,b,c] at the mod-3 level:
@@ -964,6 +1006,14 @@ fn format_usize_distribution(items: &[usize]) -> String {
         .join(",")
 }
 
+fn format_usize_list(items: &[usize]) -> String {
+    items
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn format_crt_pair_list(items: &[u32]) -> String {
     items
         .iter()
@@ -1032,6 +1082,20 @@ struct RowUnits147FullRowLiftAnalysis {
 }
 
 #[derive(Clone, Debug)]
+struct RowUnits147CoupledShiftAnalysis {
+    bundle_pair_count: usize,
+    active_bundle_count: usize,
+    active_row_marginal_count: usize,
+    exact_row_pair_count: u128,
+    fixed_row_pair_count: u128,
+    relaxed_two_shift_feasible_row_pair_count: u128,
+    relaxed_two_shift_pattern_log10: Option<f64>,
+    sequence_joint_cache_entries: usize,
+    max_sequence_joint_set_size: usize,
+    top_feasible_samples: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
 struct RowUnits147InvariantMarginal {
     rows: [i32; 9],
     norm: i32,
@@ -1056,6 +1120,40 @@ struct RowUnits147InvariantRowLiftAnalysis {
     exact_row_pair_count: u128,
     exact_pattern_log10: Option<f64>,
     top_exact_samples: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct ShiftGraphStats {
+    domain_size: usize,
+    variable_count: usize,
+    edge_count: usize,
+    weighted_edge_count: i32,
+    self_terms: i32,
+    max_degree: usize,
+    min_fill_width: usize,
+    min_fill_added_edge_count: usize,
+    min_fill_bag_size_distribution: BTreeMap<usize, usize>,
+    max_bag_domain_states: u128,
+    min_fill_order: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct MinFillProfile {
+    width: usize,
+    added_edge_count: usize,
+    bag_size_distribution: BTreeMap<usize, usize>,
+    order: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantShift31GraphAnalysis {
+    subgroup: Vec<u32>,
+    column_generator: u32,
+    exact_row_pair_count: u128,
+    fixed_triple_target_count: usize,
+    nonfixed_row_sum_target_count: usize,
+    fixed_graph: ShiftGraphStats,
+    nonfixed_graph: ShiftGraphStats,
 }
 
 fn cyclic_multiplier_hypotheses(
@@ -1613,6 +1711,86 @@ fn row_units_147_invariant_marginals_for_bundle(
     marginals
 }
 
+fn row_units_147_invariant_shift31_graph_analysis(
+    pair_masses: &[RowBundlePairMass],
+    subgroup: &[u32],
+) -> RowUnits147InvariantShift31GraphAnalysis {
+    debug_assert_eq!(sorted_residues(subgroup, 9), vec![1, 4, 7]);
+    debug_assert_eq!(subgroup.len(), 3);
+    let column_generator = row_units_147_order3_column_generator(subgroup)
+        .expect("order-3 row_units={1,4,7} subgroup must have a row-unit-4 generator");
+    let allowed_bundles = row_bundle_triples_for_row_units(&[1, 4, 7]);
+    let bundle_pairs = pair_masses
+        .iter()
+        .filter(|pair| {
+            allowed_bundles.contains(&pair.left) && allowed_bundles.contains(&pair.right)
+        })
+        .collect::<Vec<_>>();
+    let active_bundles = bundle_pairs
+        .iter()
+        .flat_map(|pair| [pair.left, pair.right])
+        .collect::<BTreeSet<_>>();
+    let mut pattern_count_cache = HashMap::<Vec<u32>, BTreeMap<i32, u128>>::new();
+    let mut marginal_cache = HashMap::new();
+    for bundle in &active_bundles {
+        marginal_cache.insert(
+            *bundle,
+            row_units_147_invariant_marginals_for_bundle(
+                *bundle,
+                subgroup,
+                &mut pattern_count_cache,
+            ),
+        );
+    }
+
+    let mut exact_row_pair_count = 0u128;
+    let mut fixed_triple_targets = BTreeSet::new();
+    let mut nonfixed_row_sum_targets = BTreeSet::new();
+    for pair in &bundle_pairs {
+        let left_marginals = marginal_cache
+            .get(&pair.left)
+            .expect("active left bundle must have invariant marginals");
+        let right_marginals = marginal_cache
+            .get(&pair.right)
+            .expect("active right bundle must have invariant marginals");
+        for left in left_marginals {
+            for right in right_marginals {
+                if left.norm + right.norm != LP333_ROW_NORM_TARGET {
+                    continue;
+                }
+                if !row_paf_pair_is_exact(&left.paf, &right.paf) {
+                    continue;
+                }
+                exact_row_pair_count += 1;
+                fixed_triple_targets.insert((left.rows[0], left.rows[3], left.rows[6]));
+                fixed_triple_targets.insert((right.rows[0], right.rows[3], right.rows[6]));
+                nonfixed_row_sum_targets.insert(left.rows[1]);
+                nonfixed_row_sum_targets.insert(left.rows[2]);
+                nonfixed_row_sum_targets.insert(right.rows[1]);
+                nonfixed_row_sum_targets.insert(right.rows[2]);
+            }
+        }
+    }
+
+    RowUnits147InvariantShift31GraphAnalysis {
+        subgroup: subgroup.to_vec(),
+        column_generator,
+        exact_row_pair_count,
+        fixed_triple_target_count: fixed_triple_targets.len(),
+        nonfixed_row_sum_target_count: nonfixed_row_sum_targets.len(),
+        fixed_graph: col10_fixed_triple_shift1_graph_stats(),
+        nonfixed_graph: col10_nonfixed_row_orbit_shift31_graph_stats(column_generator),
+    }
+}
+
+fn row_units_147_order3_column_generator(subgroup: &[u32]) -> Option<u32> {
+    subgroup
+        .iter()
+        .copied()
+        .find(|unit| unit % 9 == 4)
+        .map(|unit| unit % 37)
+}
+
 fn row_pattern_counts_for_column_units(
     column_units: &[u32],
     cache: &mut HashMap<Vec<u32>, BTreeMap<i32, u128>>,
@@ -1709,6 +1887,38 @@ fn row_units_147_invariant_row_lift_summary(
         analysis.exact_row_pair_count,
         pattern_log10,
         analysis.top_exact_samples.join("|")
+    )
+}
+
+fn row_units_147_invariant_shift31_graph_summary(
+    analysis: &RowUnits147InvariantShift31GraphAnalysis,
+) -> String {
+    format!(
+        "subgroup_crt={},column_generator={},exact_row_pairs={},fixed_triple_targets={},nonfixed_row_sum_targets={},fixed_graph={},nonfixed_graph={}",
+        format_crt_pair_list(&analysis.subgroup),
+        analysis.column_generator,
+        analysis.exact_row_pair_count,
+        analysis.fixed_triple_target_count,
+        analysis.nonfixed_row_sum_target_count,
+        shift_graph_stats_summary(&analysis.fixed_graph),
+        shift_graph_stats_summary(&analysis.nonfixed_graph),
+    )
+}
+
+fn shift_graph_stats_summary(stats: &ShiftGraphStats) -> String {
+    format!(
+        "vars={},domain={},edges={},weighted_edges={},self_terms={},max_degree={},min_fill_width={},min_fill_added_edges={},min_fill_bag_sizes={},max_bag_domain_states={},min_fill_order={}",
+        stats.variable_count,
+        stats.domain_size,
+        stats.edge_count,
+        stats.weighted_edge_count,
+        stats.self_terms,
+        stats.max_degree,
+        stats.min_fill_width,
+        stats.min_fill_added_edge_count,
+        format_size_dist(&stats.min_fill_bag_size_distribution),
+        stats.max_bag_domain_states,
+        format_usize_list(&stats.min_fill_order),
     )
 }
 
@@ -1933,6 +2143,139 @@ fn row_units_147_full_row_lift_analysis(
     }
 }
 
+fn row_units_147_col10_coupled_shift_analysis(
+    pair_masses: &[RowBundlePairMass],
+) -> RowUnits147CoupledShiftAnalysis {
+    let allowed_bundles = row_bundle_triples_for_row_units(&[1, 4, 7]);
+    let bundle_pairs = pair_masses
+        .iter()
+        .filter(|pair| {
+            allowed_bundles.contains(&pair.left) && allowed_bundles.contains(&pair.right)
+        })
+        .collect::<Vec<_>>();
+    let active_bundles = bundle_pairs
+        .iter()
+        .flat_map(|pair| [pair.left, pair.right])
+        .collect::<BTreeSet<_>>();
+    let marginal_cache = active_bundles
+        .iter()
+        .map(|bundle| (*bundle, row_units_147_marginals_for_bundle(*bundle, false)))
+        .collect::<HashMap<_, _>>();
+    let active_row_marginal_count = marginal_cache.values().map(Vec::len).sum();
+
+    let mut exact_row_pair_count = 0u128;
+    let mut fixed_row_pair_count = 0u128;
+    let mut relaxed_two_shift_feasible_row_pair_count = 0u128;
+    let mut relaxed_two_shift_pattern_log10 = None;
+    let mut sequence_joint_cache = HashMap::<[i32; 9], BTreeSet<(i32, i32)>>::new();
+    let mut top_feasible_samples = Vec::<(f64, [i32; 9], [i32; 9])>::new();
+
+    for pair in &bundle_pairs {
+        let left_marginals = marginal_cache
+            .get(&pair.left)
+            .expect("active left bundle must have marginals");
+        let right_marginals = marginal_cache
+            .get(&pair.right)
+            .expect("active right bundle must have marginals");
+        for left in left_marginals {
+            for right in right_marginals {
+                if left.norm + right.norm != LP333_ROW_NORM_TARGET {
+                    continue;
+                }
+                if !row_paf_pair_is_exact(&left.paf, &right.paf) {
+                    continue;
+                }
+                exact_row_pair_count += 1;
+                let (Some(left_col10_log10), Some(right_col10_log10)) = (
+                    left.col10_fixed_rows_pattern_log10,
+                    right.col10_fixed_rows_pattern_log10,
+                ) else {
+                    continue;
+                };
+                fixed_row_pair_count += 1;
+
+                let left_joint = sequence_joint_cache
+                    .entry(left.rows)
+                    .or_insert_with(|| row_units_147_col10_relaxed_shift0_shift1_pairs(left.rows))
+                    .clone();
+                let right_joint = sequence_joint_cache
+                    .entry(right.rows)
+                    .or_insert_with(|| row_units_147_col10_relaxed_shift0_shift1_pairs(right.rows))
+                    .clone();
+                if tuple_sumset_has_target(
+                    &left_joint,
+                    &right_joint,
+                    (LP333_ACTUAL_SHIFT_TARGET, LP333_ACTUAL_SHIFT_TARGET),
+                ) {
+                    relaxed_two_shift_feasible_row_pair_count += 1;
+                    let pattern_log10 = left_col10_log10 + right_col10_log10;
+                    relaxed_two_shift_pattern_log10 = Some(log10_sum_optional(
+                        relaxed_two_shift_pattern_log10,
+                        pattern_log10,
+                    ));
+                    push_top_row_units_147_sample(
+                        &mut top_feasible_samples,
+                        pattern_log10,
+                        left.rows,
+                        right.rows,
+                        5,
+                    );
+                }
+            }
+        }
+    }
+
+    let max_sequence_joint_set_size = sequence_joint_cache
+        .values()
+        .map(BTreeSet::len)
+        .max()
+        .unwrap_or(0);
+    RowUnits147CoupledShiftAnalysis {
+        bundle_pair_count: bundle_pairs.len(),
+        active_bundle_count: active_bundles.len(),
+        active_row_marginal_count,
+        exact_row_pair_count,
+        fixed_row_pair_count,
+        relaxed_two_shift_feasible_row_pair_count,
+        relaxed_two_shift_pattern_log10,
+        sequence_joint_cache_entries: sequence_joint_cache.len(),
+        max_sequence_joint_set_size,
+        top_feasible_samples: top_feasible_samples
+            .into_iter()
+            .map(|(log10_count, left, right)| {
+                format!(
+                    "log10_count={:.3}:{}|{}",
+                    log10_count,
+                    format_i32_list(&left),
+                    format_i32_list(&right)
+                )
+            })
+            .collect(),
+    }
+}
+
+fn row_units_147_col10_relaxed_shift0_shift1_pairs(rows: [i32; 9]) -> BTreeSet<(i32, i32)> {
+    let fixed_shift0 = col10_fixed_triple_dot_sum_values(rows[0], rows[3], rows[6]);
+    let fixed_shift1 = col10_fixed_shift1_sum_values(rows[0], rows[3], rows[6]);
+    let nonfixed = col10_nonfixed_orbit_pair_self_autocorr_values(rows[1], rows[2]);
+    if fixed_shift0.is_empty() || fixed_shift1.is_empty() || nonfixed.is_empty() {
+        return BTreeSet::new();
+    }
+
+    let mut values = BTreeSet::new();
+    for shift0_fixed in &fixed_shift0 {
+        for shift1_fixed in &fixed_shift1 {
+            for (shift0_nonfixed, shift1_nonfixed) in &nonfixed {
+                values.insert((
+                    shift0_fixed + shift0_nonfixed,
+                    shift1_fixed + shift1_nonfixed,
+                ));
+            }
+        }
+    }
+    values
+}
+
 fn row_units_147_marginals_for_bundle(
     bundle: [i32; 3],
     include_col10_shift1: bool,
@@ -2078,6 +2421,39 @@ fn row_units_147_col10_shift1_dot_sums(rows: [i32; 9]) -> Option<BTreeSet<i32>> 
     Some(sums)
 }
 
+fn col10_fixed_shift1_sum_values(row_0_sum: i32, row_3_sum: i32, row_6_sum: i32) -> BTreeSet<i32> {
+    let fixed_0_shift1 = col10_fixed_shift1_values(row_0_sum);
+    let fixed_3_shift1 = col10_fixed_shift1_values(row_3_sum);
+    let fixed_6_shift1 = col10_fixed_shift1_values(row_6_sum);
+    let mut sums = BTreeSet::new();
+    for fixed_0 in &fixed_0_shift1 {
+        for fixed_3 in &fixed_3_shift1 {
+            for fixed_6 in &fixed_6_shift1 {
+                sums.insert(fixed_0 + fixed_3 + fixed_6);
+            }
+        }
+    }
+    sums
+}
+
+fn col10_nonfixed_orbit_pair_self_autocorr_values(
+    row_147_sum: i32,
+    row_258_sum: i32,
+) -> BTreeSet<(i32, i32)> {
+    let left = col10_orbit_self_autocorr_values(row_147_sum);
+    let right = col10_orbit_self_autocorr_values(row_258_sum);
+    let mut values = BTreeSet::new();
+    for (left_self, left_autocorr) in &left {
+        for (right_self, right_autocorr) in &right {
+            values.insert((
+                3 * left_self + 3 * right_self,
+                left_autocorr + right_autocorr,
+            ));
+        }
+    }
+    values
+}
+
 fn col10_fixed_shift1_values(row_sum: i32) -> BTreeSet<i32> {
     static TABLE: OnceLock<HashMap<i32, BTreeSet<i32>>> = OnceLock::new();
     TABLE
@@ -2108,6 +2484,581 @@ fn build_col10_fixed_shift1_table() -> HashMap<i32, BTreeSet<i32>> {
             .sum();
         table.entry(row_sum).or_default().insert(shift1_dot);
     }
+    table
+}
+
+fn col10_fixed_triple_shift1_graph_stats() -> ShiftGraphStats {
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let mut edge_weights = HashMap::<(usize, usize), i32>::new();
+    let mut self_terms = 0;
+    for column in 0..37usize {
+        let source = orbit_lookup[column].0;
+        let target = orbit_lookup[(column + 1) % 37].0;
+        if source == target {
+            self_terms += 1;
+        } else {
+            let key = if source < target {
+                (source, target)
+            } else {
+                (target, source)
+            };
+            *edge_weights.entry(key).or_default() += 1;
+        }
+    }
+    shift_graph_stats(orbits.len(), &edge_weights, self_terms, 8)
+}
+
+#[cfg(test)]
+fn col10_fixed_triple_shift0_shift1_values(
+    row_0_sum: i32,
+    row_3_sum: i32,
+    row_6_sum: i32,
+) -> BTreeSet<(i32, i32)> {
+    let target = (row_0_sum, row_3_sum, row_6_sum);
+    col10_fixed_triple_shift0_shift1_table_for_targets(&BTreeSet::from([target]))
+        .remove(&target)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+fn col10_fixed_triple_shift0_shift1_table_for_targets(
+    targets: &BTreeSet<(i32, i32, i32)>,
+) -> HashMap<(i32, i32, i32), BTreeSet<(i32, i32)>> {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|(row_0_sum, row_3_sum, row_6_sum)| {
+            col10_fixed_row_pattern_count(*row_0_sum) > 0
+                && col10_fixed_row_pattern_count(*row_3_sum) > 0
+                && col10_fixed_row_pattern_count(*row_6_sum) > 0
+        })
+        .collect::<BTreeSet<_>>();
+    if targets.is_empty() {
+        return HashMap::new();
+    }
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let domains = col10_fixed_triple_domains(&orbits);
+    let order = [5usize, 12, 0, 6, 10, 4, 11, 7, 8, 1, 2, 3, 9];
+    let reachable_partials = col10_fixed_triple_reachable_row_partials_by_remaining(&targets);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32, i32)>>::from([(
+        Vec::new(),
+        HashSet::from([(0, 0, 0, 0, 0)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let remaining_columns = order[step + 1..]
+            .iter()
+            .map(|future_variable| orbits[*future_variable].len() as i32)
+            .sum::<i32>();
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| {
+                col10_fixed_shift1_orbit_has_neighbor_in_future(&orbit_lookup, *processed, &future)
+            })
+            .collect::<Vec<_>>();
+        let variable_size = orbits[variable].len() as i32;
+        let variable_sums = domains[variable]
+            .iter()
+            .map(|domain| {
+                [
+                    variable_size * domain[0],
+                    variable_size * domain[1],
+                    variable_size * domain[2],
+                ]
+            })
+            .collect::<Vec<_>>();
+        let variable_shift0_energy = domains[variable]
+            .iter()
+            .map(|domain| {
+                variable_size
+                    * (domain[0] * domain[1] + domain[1] * domain[2] + domain[2] * domain[0])
+            })
+            .collect::<Vec<_>>();
+        let variable_shift1_loop_energy = (0..domains[variable].len())
+            .map(|state_index| {
+                col10_fixed_triple_shift1_edge_energy(
+                    &orbit_lookup,
+                    &domains,
+                    variable,
+                    state_index,
+                    variable,
+                    state_index,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32, i32)>>::new();
+
+        for (assignment, values) in &states {
+            if values.is_empty() {
+                continue;
+            }
+            for state_index in 0..domains[variable].len() {
+                let mut added_shift1 = variable_shift1_loop_energy[state_index];
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    if !col10_fixed_shift1_orbit_pair_has_edges(
+                        &orbit_lookup,
+                        *active_variable,
+                        variable,
+                    ) {
+                        continue;
+                    }
+                    added_shift1 += col10_fixed_triple_shift1_edge_energy(
+                        &orbit_lookup,
+                        &domains,
+                        *active_variable,
+                        assignment[active_position],
+                        variable,
+                        state_index,
+                    );
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut accepted_values = Vec::new();
+                for (row_0, row_3, row_6, shift0, shift1) in values {
+                    let next_row_0 = row_0 + variable_sums[state_index][0];
+                    let next_row_3 = row_3 + variable_sums[state_index][1];
+                    let next_row_6 = row_6 + variable_sums[state_index][2];
+                    let reachable = reachable_partials
+                        .get(&remaining_columns)
+                        .expect("remaining column count must be precomputed");
+                    if !reachable[0].contains(&next_row_0)
+                        || !reachable[1].contains(&next_row_3)
+                        || !reachable[2].contains(&next_row_6)
+                    {
+                        continue;
+                    }
+                    accepted_values.push((
+                        next_row_0,
+                        next_row_3,
+                        next_row_6,
+                        shift0 + variable_shift0_energy[state_index],
+                        shift1 + added_shift1,
+                    ));
+                }
+                if !accepted_values.is_empty() {
+                    let projected_values = next_states.entry(projected_assignment).or_default();
+                    for value in accepted_values {
+                        projected_values.insert(value);
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+    }
+
+    debug_assert!(active_variables.is_empty());
+    let mut table = HashMap::<(i32, i32, i32), BTreeSet<(i32, i32)>>::new();
+    for signatures in states.values() {
+        for (row_0, row_3, row_6, shift0, shift1) in signatures {
+            let target = (*row_0, *row_3, *row_6);
+            if targets.contains(&target) {
+                table.entry(target).or_default().insert((*shift0, *shift1));
+            }
+        }
+    }
+    table
+}
+
+#[cfg(test)]
+fn col10_fixed_triple_reachable_row_partials_by_remaining(
+    targets: &BTreeSet<(i32, i32, i32)>,
+) -> HashMap<i32, [HashSet<i32>; 3]> {
+    let mut by_remaining = HashMap::new();
+    for remaining_columns in 0..=37 {
+        let mut partials = [HashSet::new(), HashSet::new(), HashSet::new()];
+        for (target_0, target_3, target_6) in targets {
+            col10_insert_reachable_row_partials(&mut partials[0], *target_0, remaining_columns);
+            col10_insert_reachable_row_partials(&mut partials[1], *target_3, remaining_columns);
+            col10_insert_reachable_row_partials(&mut partials[2], *target_6, remaining_columns);
+        }
+        by_remaining.insert(remaining_columns, partials);
+    }
+    by_remaining
+}
+
+#[cfg(test)]
+fn col10_insert_reachable_row_partials(
+    partials: &mut HashSet<i32>,
+    target: i32,
+    remaining_columns: i32,
+) {
+    for partial in -37..=37 {
+        if col10_fixed_row_sum_can_reach(partial, target, remaining_columns) {
+            partials.insert(partial);
+        }
+    }
+}
+
+#[cfg(test)]
+fn col10_fixed_triple_domains(orbits: &[Vec<usize>]) -> Vec<Vec<[i32; 3]>> {
+    orbits
+        .iter()
+        .map(|_| {
+            (0..8usize)
+                .map(|mask| {
+                    [
+                        if mask & 1 == 1 { 1 } else { -1 },
+                        if mask & 2 == 2 { 1 } else { -1 },
+                        if mask & 4 == 4 { 1 } else { -1 },
+                    ]
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+fn col10_fixed_shift1_orbit_has_neighbor_in_future(
+    orbit_lookup: &[(usize, usize); 37],
+    orbit: usize,
+    future: &BTreeSet<usize>,
+) -> bool {
+    future.iter().any(|future_orbit| {
+        col10_fixed_shift1_orbit_pair_has_edges(orbit_lookup, orbit, *future_orbit)
+    })
+}
+
+#[cfg(test)]
+fn col10_fixed_shift1_orbit_pair_has_edges(
+    orbit_lookup: &[(usize, usize); 37],
+    left_orbit: usize,
+    right_orbit: usize,
+) -> bool {
+    (0..37).any(|column| {
+        let source_orbit = orbit_lookup[column].0;
+        let target_orbit = orbit_lookup[(column + 1) % 37].0;
+        (source_orbit == left_orbit && target_orbit == right_orbit)
+            || (left_orbit != right_orbit
+                && source_orbit == right_orbit
+                && target_orbit == left_orbit)
+    })
+}
+
+#[cfg(test)]
+fn col10_fixed_triple_shift1_edge_energy(
+    orbit_lookup: &[(usize, usize); 37],
+    domains: &[Vec<[i32; 3]>],
+    left_orbit: usize,
+    left_state_index: usize,
+    right_orbit: usize,
+    right_state_index: usize,
+) -> i32 {
+    let left = domains[left_orbit][left_state_index];
+    let right = domains[right_orbit][right_state_index];
+    let mut energy = 0;
+    for column in 0..37 {
+        let source_orbit = orbit_lookup[column].0;
+        let target_orbit = orbit_lookup[(column + 1) % 37].0;
+        if source_orbit == left_orbit && target_orbit == right_orbit {
+            energy += sign_triple_dot(left, right);
+        } else if left_orbit != right_orbit
+            && source_orbit == right_orbit
+            && target_orbit == left_orbit
+        {
+            energy += sign_triple_dot(right, left);
+        }
+    }
+    energy
+}
+
+#[cfg(test)]
+fn sign_triple_dot(left: [i32; 3], right: [i32; 3]) -> i32 {
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+#[cfg(test)]
+fn col10_fixed_row_sum_can_reach(partial: i32, target: i32, remaining_columns: i32) -> bool {
+    let delta = target - partial;
+    delta.abs() <= remaining_columns && (delta - remaining_columns) % 2 == 0
+}
+
+fn col10_nonfixed_row_orbit_shift31_graph_stats(column_generator: u32) -> ShiftGraphStats {
+    let (edge_weights, constant_energy) =
+        col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
+    shift_graph_stats(37, &edge_weights, constant_energy, 2)
+}
+
+fn col10_nonfixed_row_orbit_shift31_edge_weights(
+    column_generator: u32,
+) -> (HashMap<(usize, usize), i32>, i32) {
+    let mut edge_weights = HashMap::<(usize, usize), i32>::new();
+    let mut constant_energy = 0i32;
+    for row in [1u32, 4, 7] {
+        for column in 0..37u32 {
+            let source = nonfixed_row_orbit_base_column(row, column, column_generator);
+            let target =
+                nonfixed_row_orbit_base_column((row + 3) % 9, (column + 1) % 37, column_generator);
+            if source == target {
+                constant_energy += 1;
+            } else {
+                let key = if source < target {
+                    (source, target)
+                } else {
+                    (target, source)
+                };
+                *edge_weights.entry(key).or_default() += 1;
+            }
+        }
+    }
+    (edge_weights, constant_energy)
+}
+
+fn nonfixed_row_orbit_base_column(row: u32, column: u32, column_generator: u32) -> usize {
+    let exponent = match row {
+        1 | 2 => 0,
+        4 | 5 => 1,
+        7 | 8 => 2,
+        _ => panic!("row must be in a nonfixed row_units={{1,4,7}} orbit"),
+    };
+    let multiplier = mod_pow_u32(column_generator, exponent, 37);
+    let inverse = mod_inverse_u32(multiplier, 37);
+    ((inverse * column) % 37) as usize
+}
+
+fn weighted_graph_adjacency(
+    variable_count: usize,
+    edge_weights: &HashMap<(usize, usize), i32>,
+) -> Vec<BTreeSet<usize>> {
+    let mut adjacency = vec![BTreeSet::new(); variable_count];
+    for &(left, right) in edge_weights.keys() {
+        adjacency[left].insert(right);
+        adjacency[right].insert(left);
+    }
+    adjacency
+}
+
+fn shift_graph_stats(
+    variable_count: usize,
+    edge_weights: &HashMap<(usize, usize), i32>,
+    self_terms: i32,
+    domain_size: usize,
+) -> ShiftGraphStats {
+    let adjacency = weighted_graph_adjacency(variable_count, edge_weights);
+    let min_fill = min_fill_profile(&adjacency);
+    ShiftGraphStats {
+        domain_size,
+        variable_count,
+        edge_count: edge_weights.len(),
+        weighted_edge_count: edge_weights.values().sum(),
+        self_terms,
+        max_degree: adjacency.iter().map(BTreeSet::len).max().unwrap_or(0),
+        min_fill_width: min_fill.width,
+        min_fill_added_edge_count: min_fill.added_edge_count,
+        max_bag_domain_states: pow_usize_u128(domain_size, min_fill.width + 1),
+        min_fill_bag_size_distribution: min_fill.bag_size_distribution,
+        min_fill_order: min_fill.order,
+    }
+}
+
+fn min_fill_profile(adjacency: &[BTreeSet<usize>]) -> MinFillProfile {
+    let mut graph = adjacency.to_vec();
+    let mut remaining = (0..adjacency.len()).collect::<BTreeSet<_>>();
+    let mut width = 0usize;
+    let mut added_edge_count = 0usize;
+    let mut bag_size_distribution = BTreeMap::<usize, usize>::new();
+    let mut order = Vec::with_capacity(adjacency.len());
+    while !remaining.is_empty() {
+        let variable = remaining
+            .iter()
+            .copied()
+            .min_by_key(|candidate| {
+                let neighbors = graph[*candidate]
+                    .iter()
+                    .copied()
+                    .filter(|neighbor| remaining.contains(neighbor))
+                    .collect::<Vec<_>>();
+                let mut missing_edges = 0usize;
+                for i in 0..neighbors.len() {
+                    for j in i + 1..neighbors.len() {
+                        if !graph[neighbors[i]].contains(&neighbors[j]) {
+                            missing_edges += 1;
+                        }
+                    }
+                }
+                (missing_edges, neighbors.len(), *candidate)
+            })
+            .expect("remaining variable set must be nonempty");
+        let neighbors = graph[variable]
+            .iter()
+            .copied()
+            .filter(|neighbor| remaining.contains(neighbor))
+            .collect::<Vec<_>>();
+        width = width.max(neighbors.len());
+        *bag_size_distribution
+            .entry(neighbors.len() + 1)
+            .or_default() += 1;
+        order.push(variable);
+        for i in 0..neighbors.len() {
+            for j in i + 1..neighbors.len() {
+                if !graph[neighbors[i]].contains(&neighbors[j]) {
+                    added_edge_count += 1;
+                }
+                graph[neighbors[i]].insert(neighbors[j]);
+                graph[neighbors[j]].insert(neighbors[i]);
+            }
+        }
+        for neighbor in &neighbors {
+            graph[*neighbor].remove(&variable);
+        }
+        remaining.remove(&variable);
+    }
+    MinFillProfile {
+        width,
+        added_edge_count,
+        bag_size_distribution,
+        order,
+    }
+}
+
+fn pow_usize_u128(base: usize, exponent: usize) -> u128 {
+    (0..exponent).fold(1u128, |value, _| value * base as u128)
+}
+
+fn mod_pow_u32(mut base: u32, mut exponent: u32, modulus: u32) -> u32 {
+    let mut value = 1u32;
+    base %= modulus;
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            value = (u64::from(value) * u64::from(base) % u64::from(modulus)) as u32;
+        }
+        base = (u64::from(base) * u64::from(base) % u64::from(modulus)) as u32;
+        exponent >>= 1;
+    }
+    value
+}
+
+fn mod_inverse_u32(value: u32, modulus: u32) -> u32 {
+    (1..modulus)
+        .find(|candidate| (u64::from(*candidate) * u64::from(value)) % u64::from(modulus) == 1)
+        .expect("value must be invertible modulo modulus")
+}
+
+fn col10_orbit_self_autocorr_values(row_sum: i32) -> BTreeSet<(i32, i32)> {
+    static TABLE: OnceLock<HashMap<i32, BTreeSet<(i32, i32)>>> = OnceLock::new();
+    TABLE
+        .get_or_init(build_col10_orbit_self_autocorr_table)
+        .get(&row_sum)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn build_col10_orbit_self_autocorr_table() -> HashMap<i32, BTreeSet<(i32, i32)>> {
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let domains = col10_orbit_domains(&orbits);
+
+    let order = [5usize, 12, 0, 6, 10, 4, 11, 7, 8, 1, 2, 3, 9];
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, BTreeSet<(i32, i32, i32)>>::from([(
+        Vec::new(),
+        BTreeSet::from([(0, 0, 0)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| {
+                col10_orbit_has_neighbor_in_future(&orbit_lookup, *processed, &future)
+            })
+            .collect::<Vec<_>>();
+        let variable_autocorr_energy = (0..domains[variable].len())
+            .map(|state_index| {
+                col10_orbit_edge_energy(
+                    &orbits,
+                    &orbit_lookup,
+                    &domains,
+                    variable,
+                    state_index,
+                    variable,
+                    state_index,
+                )
+            })
+            .collect::<Vec<_>>();
+        let variable_self_energy = domains[variable]
+            .iter()
+            .map(|domain| col10_orbit_multiplier_self_energy(&orbits[variable], domain))
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, BTreeSet<(i32, i32, i32)>>::new();
+
+        for (assignment, values) in &states {
+            for state_index in 0..domains[variable].len() {
+                let mut added_autocorr = variable_autocorr_energy[state_index];
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    if !col10_orbit_pair_has_edges(&orbit_lookup, *active_variable, variable) {
+                        continue;
+                    }
+                    added_autocorr += col10_orbit_edge_energy(
+                        &orbits,
+                        &orbit_lookup,
+                        &domains,
+                        *active_variable,
+                        assignment[active_position],
+                        variable,
+                        state_index,
+                    );
+                }
+                let added_sum: i32 = domains[variable][state_index].iter().sum();
+                let added_self = variable_self_energy[state_index];
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let projected_values = next_states.entry(projected_assignment).or_default();
+                for (row_sum, self_energy, autocorr_energy) in values {
+                    projected_values.insert((
+                        row_sum + added_sum,
+                        self_energy + added_self,
+                        autocorr_energy + added_autocorr,
+                    ));
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+    }
+
+    debug_assert!(active_variables.is_empty());
+    let mut table = HashMap::<i32, BTreeSet<(i32, i32)>>::new();
+    for values in states.values() {
+        for (row_sum, self_energy, autocorr_energy) in values {
+            table
+                .entry(*row_sum)
+                .or_default()
+                .insert((*self_energy, *autocorr_energy));
+        }
+    }
+    debug_assert_eq!(table.get(&37), Some(&BTreeSet::from([(37, 111)])));
+    debug_assert_eq!(table.get(&-37), Some(&BTreeSet::from([(37, 111)])));
     table
 }
 
@@ -2287,6 +3238,19 @@ fn col10_orbit_domains(orbits: &[Vec<usize>]) -> Vec<Vec<Vec<i32>>> {
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn col10_orbit_multiplier_self_energy(orbit: &[usize], domain: &[i32]) -> i32 {
+    let mut energy = 0;
+    for (source_position, source_column) in orbit.iter().enumerate() {
+        let target_column = (10 * source_column) % 37;
+        let target_position = orbit
+            .iter()
+            .position(|column| *column == target_column)
+            .expect("multiplication by 10 must preserve col10 orbit");
+        energy += domain[source_position] * domain[target_position];
+    }
+    energy
 }
 
 fn col10_orbit_edge_energy(
@@ -2553,6 +3517,21 @@ fn sumset_has_target(left: &BTreeSet<i32>, right: &BTreeSet<i32>, target: i32) -
     }
 }
 
+fn tuple_sumset_has_target(
+    left: &BTreeSet<(i32, i32)>,
+    right: &BTreeSet<(i32, i32)>,
+    target: (i32, i32),
+) -> bool {
+    if left.len() <= right.len() {
+        left.iter()
+            .any(|(a, b)| right.contains(&(target.0 - a, target.1 - b)))
+    } else {
+        right
+            .iter()
+            .any(|(a, b)| left.contains(&(target.0 - a, target.1 - b)))
+    }
+}
+
 fn push_top_row_units_147_sample(
     samples: &mut Vec<(f64, [i32; 9], [i32; 9])>,
     log10_count: f64,
@@ -2620,6 +3599,25 @@ fn row_units_147_full_row_lift_summary(analysis: &RowUnits147FullRowLiftAnalysis
         col10_pattern_log10,
         col10_shift0_e3_pattern_log10,
         col10_shift1_pattern
+    )
+}
+
+fn row_units_147_col10_coupled_shift_summary(analysis: &RowUnits147CoupledShiftAnalysis) -> String {
+    let pattern_log10 = analysis
+        .relaxed_two_shift_pattern_log10
+        .map(|value| format!("{value:.3}"))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "bundle_pairs={},active_bundles={},active_row_marginals={},exact_row_pairs={},fixed_row_pairs={},relaxed_two_shift_feasible_row_pairs={},relaxed_two_shift_pattern_log10={},sequence_joint_cache_entries={},max_sequence_joint_set_size={}",
+        analysis.bundle_pair_count,
+        analysis.active_bundle_count,
+        analysis.active_row_marginal_count,
+        analysis.exact_row_pair_count,
+        analysis.fixed_row_pair_count,
+        analysis.relaxed_two_shift_feasible_row_pair_count,
+        pattern_log10,
+        analysis.sequence_joint_cache_entries,
+        analysis.max_sequence_joint_set_size,
     )
 }
 
@@ -6123,7 +7121,7 @@ fn usage(message: &str) -> String {
     };
     let usage_label = colorize_label("usage:", LABEL_COLOR);
     format!(
-        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
+        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--col10-coupled] [--invariant-shift31] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
     )
 }
 
@@ -6226,10 +7224,12 @@ fn _assert_path_is_relative(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        col10_fixed_shift1_values, col10_fixed_triple_dot_sum_values, col10_self_dot_values,
+        col10_fixed_shift1_values, col10_fixed_triple_dot_sum_values,
+        col10_fixed_triple_shift0_shift1_values, col10_self_dot_values,
         cyclic_multiplier_hypotheses, parse_lp_search_file_config, row_bundle_pair_survival,
         row_bundle_triples_for_row_units, row_mod3_bundle_pair_masses,
-        row_units_147_full_row_lift_analysis, row_units_147_invariant_row_lift_analysis,
+        row_units_147_col10_coupled_shift_analysis, row_units_147_full_row_lift_analysis,
+        row_units_147_invariant_row_lift_analysis, row_units_147_invariant_shift31_graph_analysis,
         row_units_147_shift0_dot_marginal_feasible, top_cyclic_hypothesis_crt_component_summaries,
         units_mod, RowUnits147Marginal, LP333_ACTUAL_SHIFT_TARGET, LP333_ROW_SHIFT_TARGET,
     };
@@ -6317,6 +7317,25 @@ mod tests {
         assert_eq!(lift.col10_shift1_feasible_row_pair_count, 1_296);
         assert!(matches!(
             lift.col10_shift1_pattern_log10,
+            Some(value) if (value - 60.818).abs() < 0.001
+        ));
+    }
+
+    #[test]
+    #[ignore = "relaxed coupled col10 shift table takes several minutes"]
+    fn multiplier_row_units_147_col10_coupled_shift_matches_recorded_counts() {
+        let pairs = row_mod3_bundle_pair_masses();
+        let analysis = row_units_147_col10_coupled_shift_analysis(&pairs);
+        assert_eq!(analysis.bundle_pair_count, 12);
+        assert_eq!(analysis.active_bundle_count, 7);
+        assert_eq!(analysis.active_row_marginal_count, 7_467);
+        assert_eq!(analysis.exact_row_pair_count, 6_048);
+        assert_eq!(analysis.fixed_row_pair_count, 1_296);
+        assert_eq!(analysis.relaxed_two_shift_feasible_row_pair_count, 1_296);
+        assert_eq!(analysis.sequence_joint_cache_entries, 147);
+        assert_eq!(analysis.max_sequence_joint_set_size, 2_426);
+        assert!(matches!(
+            analysis.relaxed_two_shift_pattern_log10,
             Some(value) if (value - 60.818).abs() < 0.001
         ));
     }
@@ -6508,6 +7527,79 @@ mod tests {
                 && lift.exact_row_pair_count == 0
                 && lift.exact_pattern_log10.is_none()
         }));
+
+        let shift31_profiles = mixed_crt_targets
+            .iter()
+            .filter(|hypothesis| hypothesis.order == 3 && hypothesis.column_units.as_slice() != [1])
+            .map(|hypothesis| {
+                row_units_147_invariant_shift31_graph_analysis(&pairs, &hypothesis.subgroup)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(shift31_profiles.len(), 2);
+        assert!(shift31_profiles.iter().all(|profile| {
+            profile.exact_row_pair_count == 1_296
+                && profile.fixed_triple_target_count == 42
+                && profile.nonfixed_row_sum_target_count == 6
+                && profile.fixed_graph.domain_size == 8
+                && profile.fixed_graph.variable_count == 13
+                && profile.fixed_graph.min_fill_width == 5
+                && profile.fixed_graph.min_fill_added_edge_count == 7
+                && profile.fixed_graph.min_fill_bag_size_distribution
+                    == BTreeMap::from([(1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 1)])
+                && profile.fixed_graph.max_bag_domain_states == 262_144
+                && profile.fixed_graph.min_fill_order.len() == 13
+        }));
+        for profile in &shift31_profiles {
+            assert_eq!(profile.nonfixed_graph.domain_size, 2);
+            assert_eq!(profile.nonfixed_graph.variable_count, 37);
+            assert_eq!(profile.nonfixed_graph.edge_count, 105);
+            assert_eq!(profile.nonfixed_graph.weighted_edge_count, 108);
+            assert_eq!(profile.nonfixed_graph.min_fill_order.len(), 37);
+            match profile.column_generator {
+                10 => {
+                    assert_eq!(profile.nonfixed_graph.min_fill_width, 10);
+                    assert_eq!(profile.nonfixed_graph.min_fill_added_edge_count, 99);
+                    assert_eq!(profile.nonfixed_graph.max_bag_domain_states, 2_048);
+                    assert_eq!(
+                        profile.nonfixed_graph.min_fill_bag_size_distribution,
+                        BTreeMap::from([
+                            (1, 1),
+                            (2, 1),
+                            (3, 1),
+                            (4, 4),
+                            (5, 4),
+                            (6, 7),
+                            (7, 7),
+                            (8, 4),
+                            (9, 5),
+                            (10, 2),
+                            (11, 1)
+                        ])
+                    );
+                }
+                26 => {
+                    assert_eq!(profile.nonfixed_graph.min_fill_width, 9);
+                    assert_eq!(profile.nonfixed_graph.min_fill_added_edge_count, 94);
+                    assert_eq!(profile.nonfixed_graph.max_bag_domain_states, 1_024);
+                    assert_eq!(
+                        profile.nonfixed_graph.min_fill_bag_size_distribution,
+                        BTreeMap::from([
+                            (1, 1),
+                            (2, 1),
+                            (3, 1),
+                            (4, 4),
+                            (5, 4),
+                            (6, 7),
+                            (7, 4),
+                            (8, 12),
+                            (9, 2),
+                            (10, 1)
+                        ])
+                    );
+                }
+                other => panic!("unexpected column generator {other}"),
+            }
+        }
     }
 
     #[test]
@@ -6552,6 +7644,14 @@ mod tests {
         assert_eq!(
             col10_fixed_triple_dot_sum_values(37, 37, -37),
             BTreeSet::from([-37])
+        );
+        assert_eq!(
+            col10_fixed_triple_shift0_shift1_values(37, 37, 37),
+            BTreeSet::from([(111, 111)])
+        );
+        assert_eq!(
+            col10_fixed_triple_shift0_shift1_values(37, 37, -37),
+            BTreeSet::from([(-37, 111)])
         );
     }
 }

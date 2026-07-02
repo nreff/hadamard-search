@@ -133,6 +133,21 @@ What happened:
 - the corrected exact run took about `176s` in the targeted test and leaves all
   `1,296` fixed-row-compatible row-marginal pairs alive, with aggregate pattern mass
   still `log10 ~= 60.818`
+- a relaxed coupled `(3,0)+(0,1)` diagnostic was added behind
+  `hadamard analyze lp333-multiplier --col10-coupled`; it couples the arbitrary
+  nonfixed row-orbit base rows through a joint `(multiplier self-dot,
+  additive-autocorrelation)` table, but still combines the fixed-row `(3,0)` and
+  `(0,1)` possibilities independently
+- that relaxed coupled check is also non-pruning: it keeps all `1,296`
+  fixed-row-compatible row-marginal pairs, with aggregate pattern mass
+  `log10 ~= 60.818`; the run built `147` cached sequence joint sets, with maximum
+  joint-set size `2,426`
+- a direct exact-fixed-row coupling DP was also prototyped; the first naive
+  13-variable frontier over three fixed rows did not finish after a long debug run,
+  and a later shared fixed-triple target-table variant, narrowed to the exact
+  fixed-row-compatible survivors, still did not produce a full stats line in the
+  practical debug window; only the constant-row sanity cases are currently cheap,
+  so it was not kept as a public analyzer flag
 - the multiplier analyzer also gained an opt-in CRT component orbit view behind
   `--crt-components`, which prints the coordinate orbits as `(mod 9, mod 37)` pairs
   and a focused `row_units={1,4,7}` hypothesis summary; that family currently has
@@ -155,14 +170,42 @@ What happened:
     distribution `1:3,3:2,6:54`; their stronger row stabilizer leaves only `216`
     active row marginals and `0` row-pair candidates after the active bundle-pair
     join
+- a bounded mixed-shift graph diagnostic was added behind
+  `hadamard analyze lp333-multiplier --invariant-shift31`; this is intentionally
+  not an exact feasibility enumerator
+- for the two surviving order-`3` mixed targets, it reports:
+  - `1,296` exact row-pair survivors
+  - `42` distinct fixed-row triple targets
+  - `6` distinct nonfixed row-sum targets
+  - fixed-row shift graph:
+    `vars=13,domain=8,edges=32,weighted_edges=35,self_terms=2,max_degree=6,min_fill_width=5`
+  - fixed-row min-fill profile:
+    `min_fill_added_edges=7`, bag-size distribution `1:1,2:1,3:2,4:3,5:5,6:1`,
+    and max bag domain states `262,144`
+  - nonfixed row-orbit shift `(3,1)` graph:
+    `vars=37,domain=2,edges=105,weighted_edges=108,self_terms=3,max_degree=6`,
+    with `min_fill_width=10` for column generator `10` and `min_fill_width=9`
+    for column generator `26`
+  - nonfixed max bag domain states are `2,048` for column generator `10` and
+    `1,024` for column generator `26`; the analyzer now prints the concrete
+    min-fill order for each case
 
 Conclusion:
 - the `(0,1)` mixed marginal is now recorded as non-pruning for the corrected
   arbitrary-row table, but the exact path remains opt-in because it is still too slow
   for routine checkpoints
+- the first coupled mixed-shift relaxation is also non-pruning, so the next useful
+  discriminator must either couple the fixed-row rows exactly with a better state
+  representation or lift actual invariant sign tables
 - the mixed target set has narrowed further: the order-`6` mixed targets are rejected
   by actual invariant row-stabilizer compatibility, leaving the two non-column-trivial
   order-`3` subgroups as the next mixed-character targets
+- the first actual shift `(3,1)` structural diagnostic says the target sets are small
+  and the graph is wide enough that another direct value-DP is the wrong next
+  default, but the domain-aware min-fill profile is encouraging: the next exact
+  attempt should use the printed bag order and couple fixed/nonfixed invariant
+  sign-table assignments through bag states rather than materializing global
+  row-sum/energy tables
 - default `hadamard analyze lp333-multiplier` now marks this path as `skipped`
 
 ### Rejected as a default CRT pair path: naive norm-plus-one-shift materialization inside `W`-frontier buckets
