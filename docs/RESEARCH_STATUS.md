@@ -357,6 +357,9 @@ The multiplier line now has a first careful screen rather than only a roadmap it
   - the fixed-row min-fill profile adds only `7` fill edges, has bag-size
     distribution `1:1,2:1,3:2,4:3,5:5,6:1`, and a max bag domain-state
     bound of `262,144`
+  - because the current DP is a linear frontier rather than a tree-decomposition
+    DP, the analyzer now also reports a frontier order; for the fixed graph this
+    order is exact and has frontier width `6` (`8^6 = 262,144` states)
   - the nonfixed row-orbit shift `(3,1)` graph is the hard side:
     `vars=37,domain=2,edges=105,weighted_edges=108,self_terms=3,max_degree=6`,
     with min-fill width `10` for column generator `10` and `9` for column
@@ -364,12 +367,63 @@ The multiplier line now has a first careful screen rather than only a roadmap it
   - the nonfixed min-fill profiles have max bag domain-state bounds `2,048`
     and `1,024`, respectively, and the analyzer now prints the concrete
     elimination orders needed for a bag-DP implementation
+  - the frontier-order heuristic gives frontier width `11` for both nonfixed
+    graphs, so the actual compressed-profile frontier is bounded by `2,048`
+    assignments for both column generators
+- an opt-in exact value-table scaffold now exists for that shift:
+  - command: `hadamard analyze lp333-multiplier --invariant-shift31-exact`
+  - it uses the frontier orders and target row sums to build exact fixed-row and
+    nonfixed row-orbit value sets for shift `(3,1)`
+  - this is deliberately skipped by default; the first integrated attempt was too
+    heavy for the routine checkpoint path, so the normal graph diagnostic reports
+    `value_profile=skipped`, `compressed_profile=skipped`, and
+    `exact_shift31=skipped`
+  - no exact shift-`(3,1)` pruning count is recorded yet
+- a bounded profile mode now makes that slow exact scaffold observable without
+  claiming a pruning result:
+  - command: `hadamard analyze lp333-multiplier --invariant-shift31-profile`
+  - the fixed-row side now uses exact min-fill suffix target reachability instead
+    of the older loose per-row remaining-column screen
+  - profile summaries now report active-assignment capacity and fill rate
+    (`fill_ppm = assignments / capacity * 1,000,000`) alongside the capped value
+    or signature counts
+  - with the current `100,000` value-state cap, the fixed-row profile stops after
+    `7` processed variables at active width `4`, with about `2.8k` active
+    assignments and max `93` / `95` values per assignment
+  - the nonfixed raw profile reaches the width-`11` frontier and still caps at
+    `100,000` values: generator `10` stops after `20` variables with all `2,048`
+    assignments active, while generator `26` stops after `22` variables with
+    `1,531` assignments active
+- a compressed profile mode now groups each bag assignment by row-sum signature
+  and stores its energy alphabet as a bounded bitset:
+  - command: `hadamard analyze lp333-multiplier --invariant-shift31-compressed-profile`
+  - the cap can be changed with `--invariant-shift31-profile-limit N`
+  - with a `100,000` row-signature cap and the same exact suffix reachability, the
+    fixed-row profile stops after `7` processed variables at active width `4`;
+    the fixed side now has many signatures per active assignment rather than one
+    signature per assignment
+  - the nonfixed compressed profile now completes exactly at the default cap:
+    generator `10` has `31,020` signatures and `267,044` energy bits, while
+    generator `26` has `26,598` signatures and `162,860` energy bits
+  - in release mode, cap `30,000,000` now completes the fixed side exactly:
+    `steps=13`, peak `262,144 / 262,144` assignments, `20,849,958` row
+    signatures, and `58,360,095` energy bits; the final fixed table has `42`
+    row-sum signatures and `1,068` energy bits
+- the exact shift-`(3,1)` value lift now completes in release mode:
+  - command: `hadamard analyze lp333-multiplier --invariant-shift31-exact`
+  - fixed targets: `42 / 42`, max fixed energy values `28`
+  - nonfixed targets: `6 / 6`, max nonfixed energy values `29`
+  - row-value cache entries: `147`, max row energy values `84`
+  - feasible row pairs: `1,296`
+  - feasible pattern mass: `log10 ~= 60.818`
+  - conclusion: exact single shift `(3,1)` is non-pruning for both surviving
+    non-column-trivial order-`3` targets
 - representative order-`3` row-action subgroups that remain worth testing are therefore the non-column-trivial cases such as `{1,121,322}` and `{1,211,232}`
 - representative oriented bundle samples include `[-5,-9,15] | [-5,-3,9]` and `[-5,-9,15] | [-5,9,-3]`
 - this gives a concrete optional multiplier-invariant row-action family to test next, while also ruling out the tempting full column-preserving assumption, the cleanest column-trivial order-`3` representative, and the nontrivial order-`6` mixed targets
-- the next hard question is whether the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups survive an actual invariant sign-table assignment; corrected single-shift marginals and the first relaxed two-shift coupling do not decide that, and the `(3,1)` graph profile now makes a min-fill bag-DP the concrete next exact state representation rather than another raw value table
+- the next hard question is whether the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups survive an actual invariant sign-table assignment; corrected `(3,0)`, `(0,1)`, exact `(3,1)`, and the first relaxed two-shift coupling do not decide that, so the next exact state representation should couple multiple mixed shifts or add a stronger invariant across fixed and nonfixed row orbits
 
-So the next exact-lift prototype does not need to start as a generic residual-bundle solver. The better framing is an orbit-level lift staged on an `11`-orbit core, with those three hub orbits treated as the first high-priority centers and with batching focused on the downstream `W` frontier rather than on pre-`W` `UV` reuse; for the multiplier-invariant branch specifically, the immediate prototype should use the printed min-fill orders and small bag-domain bounds to couple the fixed and nonfixed invariant sign-table assignments exactly.
+So the next exact-lift prototype does not need to start as a generic residual-bundle solver. The better framing is an orbit-level lift staged on an `11`-orbit core, with those three hub orbits treated as the first high-priority centers and with batching focused on the downstream `W` frontier rather than on pre-`W` `UV` reuse; for the multiplier-invariant branch specifically, the immediate prototype should compress the per-bag value sets in the opt-in shift-`(3,1)` scaffold until it can couple the fixed and nonfixed invariant sign-table assignments exactly inside a practical checkpoint window.
 
 ## What Failed, And Why That Matters
 
@@ -393,7 +447,10 @@ This matters for publishability because it shows a search program, not a single 
 
 That is often the difference between "interesting code" and a defensible computational methods story.
 
-For the itemized history, see [docs/EXPERIMENT_LOG.md](/home/nate/projects/hadamard/docs/EXPERIMENT_LOG.md).
+For the counted experiment registry, see
+[docs/EXPERIMENT_INDEX.md](/home/nate/projects/hadamard/docs/EXPERIMENT_INDEX.md).
+For the detailed itemized history, see
+[docs/EXPERIMENT_LOG.md](/home/nate/projects/hadamard/docs/EXPERIMENT_LOG.md).
 
 ## Current Intuition
 

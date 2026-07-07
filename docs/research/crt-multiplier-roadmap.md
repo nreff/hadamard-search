@@ -153,9 +153,28 @@ Current measured picture:
     count `108`, max degree `6`, and min-fill width `9` to `10`; the fixed-row graph
     is smaller at `13` variables, domain `8`, `32` edges, weighted edge count `35`,
     and min-fill width `5`
-  - the same diagnostic now prints the concrete min-fill orders and bag scales:
-    fixed-row max bag domain states `262,144`; nonfixed max bag domain states
-    `2,048` for column generator `10` and `1,024` for column generator `26`
+  - the same diagnostic now prints concrete min-fill and linear-frontier orders:
+    fixed has exact frontier width `6` (`262,144` domain states), while both
+    nonfixed graphs have frontier width `11` (`2,048` domain states)
+  - an opt-in exact shift-`(3,1)` value-table scaffold now exists behind
+    `hadamard analyze lp333-multiplier --invariant-shift31-exact`; in release
+    mode it completes in about `189s`, with fixed targets `42 / 42`, nonfixed
+    targets `6 / 6`, max row energy values `84`, and all `1,296` row pairs still
+    feasible
+  - `hadamard analyze lp333-multiplier --invariant-shift31-profile` now adds a
+    bounded value-DP profile with exact fixed-row suffix target reachability and
+    a `100,000` value-state cap: the fixed-row side hits the cap after `7`
+    processed variables under the new exact frontier order, while the nonfixed
+    raw profile reaches the width-`11` frontier and still caps on value
+    multiplicity
+  - `hadamard analyze lp333-multiplier --invariant-shift31-compressed-profile`
+    now profiles row-sum signatures with bounded energy bitsets and uses the
+    frontier order; with a `100,000` signature cap, the nonfixed side now
+    completes exactly (`31,020` / `26,598` signatures for column generators
+    `10` / `26`), while fixed rows still stop after `7` processed variables
+  - `--invariant-shift31-profile-limit N` raises the raw/compressed profile cap;
+    in release mode, cap `30,000,000` completes the fixed side exactly with peak
+    `20,849,958` row signatures and `58,360,095` energy bits
 - Representative surviving order-`3` hypotheses include subgroups
   `{1,121,322}` and `{1,211,232}` after removing the column-trivial representative
   `{1,112,223}`.
@@ -175,10 +194,11 @@ Interpretation:
   representability anymore. It is lifting the surviving non-column-trivial
   order-`3` `row_units={1,4,7}` subgroups to actual invariant `9 x 37` sign tables
   while enforcing exactly coupled mixed CRT character constraints.
-- The implementation lesson from the shift `(3,1)` graph is now sharper: the target
-  alphabet is small, a naive row-sum/energy DP is still the wrong shape, but the
-  min-fill bag-domain bounds are small enough to justify a real graph-structured
-  exact solver before reaching for a heavier transform.
+- The implementation lesson from the shift `(3,1)` graph is now sharper: the
+  target alphabet is small enough for exact release-mode single-shift lifting, but
+  that exact lift is non-pruning. The next graph-structured solver should couple
+  multiple mixed shifts or add a stronger invariant across fixed and nonfixed row
+  orbits before reaching for a heavier transform.
 
 ### Paper-first tasks
 

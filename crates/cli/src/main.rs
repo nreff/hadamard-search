@@ -32,6 +32,12 @@ const LP333_ROW_NORM_TARGET: i32 = 594;
 const LP333_ROW_SHIFT_TARGET: i32 = -74;
 const LP333_ACTUAL_SHIFT_TARGET: i32 = -2;
 const LP333_ROW_SHIFT_BOUND: i32 = 12321;
+const SHIFT31_VALUE_PROFILE_LIMIT: usize = 100_000;
+const SHIFT31_SIDE_ENERGY_MIN: i32 = -111;
+const SHIFT31_SIDE_ENERGY_BITS: usize = 223;
+const SHIFT31_SIDE_ENERGY_WORDS: usize = 4;
+
+type Shift31EnergyBits = [u64; SHIFT31_SIDE_ENERGY_WORDS];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct LpSearchFileConfig {
@@ -182,11 +188,26 @@ fn cmd_analyze_lp333_multiplier(args: Vec<String>) -> Result<(), String> {
     let include_crt_components = args.iter().any(|arg| arg == "--crt-components");
     let include_col10_coupled = args.iter().any(|arg| arg == "--col10-coupled");
     let include_invariant_shift31 = args.iter().any(|arg| arg == "--invariant-shift31");
+    let include_invariant_shift31_profile =
+        args.iter().any(|arg| arg == "--invariant-shift31-profile");
+    let include_invariant_shift31_compressed_profile = args
+        .iter()
+        .any(|arg| arg == "--invariant-shift31-compressed-profile");
+    let include_invariant_shift31_exact = args.iter().any(|arg| arg == "--invariant-shift31-exact");
+    let invariant_shift31_profile_limit =
+        find_flag_value(&args, "--invariant-shift31-profile-limit")
+            .map(|value| parse_usize_flag(&value, "--invariant-shift31-profile-limit"))
+            .transpose()?
+            .unwrap_or(SHIFT31_VALUE_PROFILE_LIMIT);
     print_lp333_multiplier_analysis(
         include_col10_shift1,
         include_crt_components,
         include_col10_coupled,
         include_invariant_shift31,
+        include_invariant_shift31_profile,
+        include_invariant_shift31_compressed_profile,
+        include_invariant_shift31_exact,
+        invariant_shift31_profile_limit,
     )
 }
 
@@ -195,6 +216,10 @@ fn print_lp333_multiplier_analysis(
     include_crt_components: bool,
     include_col10_coupled: bool,
     include_invariant_shift31: bool,
+    include_invariant_shift31_profile: bool,
+    include_invariant_shift31_compressed_profile: bool,
+    include_invariant_shift31_exact: bool,
+    invariant_shift31_profile_limit: usize,
 ) -> Result<(), String> {
     let n = 333u32;
     let (p, q) = (9u32, 37u32);
@@ -230,7 +255,12 @@ fn print_lp333_multiplier_analysis(
     println!("min_coordinate_orbit_size={min_orbit}");
     println!("max_coordinate_orbit_size={max_orbit}");
     let row_bundle_pair_masses = row_mod3_bundle_pair_masses();
-    if include_crt_components || include_invariant_shift31 {
+    if include_crt_components
+        || include_invariant_shift31
+        || include_invariant_shift31_profile
+        || include_invariant_shift31_compressed_profile
+        || include_invariant_shift31_exact
+    {
         let cyclic_hypotheses = cyclic_multiplier_hypotheses(&units, n, &row_bundle_pair_masses);
         let row_units_147_hypotheses = cyclic_hypotheses
             .iter()
@@ -401,7 +431,13 @@ fn print_lp333_multiplier_analysis(
                     .join(";")
             );
         }
-        if include_invariant_shift31 {
+        if include_invariant_shift31
+            || include_invariant_shift31_profile
+            || include_invariant_shift31_compressed_profile
+            || include_invariant_shift31_exact
+        {
+            let mut fixed_shift31_compressed_profile_cache =
+                HashMap::<(Vec<(i32, i32, i32)>, usize), Shift31CompressedDpProfile>::new();
             println!(
                 "crt_component_row_units_147_order_3_invariant_shift31_graphs={}",
                 row_units_147_order_3_nontrivial_hypotheses
@@ -411,6 +447,11 @@ fn print_lp333_multiplier_analysis(
                             &row_units_147_invariant_shift31_graph_analysis(
                                 &row_bundle_pair_masses,
                                 &hypothesis.subgroup,
+                                include_invariant_shift31_exact,
+                                include_invariant_shift31_profile,
+                                include_invariant_shift31_compressed_profile,
+                                invariant_shift31_profile_limit,
+                                &mut fixed_shift31_compressed_profile_cache,
                             ),
                         )
                     })
@@ -1135,6 +1176,9 @@ struct ShiftGraphStats {
     min_fill_bag_size_distribution: BTreeMap<usize, usize>,
     max_bag_domain_states: u128,
     min_fill_order: Vec<usize>,
+    frontier_width: usize,
+    frontier_max_domain_states: u128,
+    frontier_order: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -1142,6 +1186,13 @@ struct MinFillProfile {
     width: usize,
     added_edge_count: usize,
     bag_size_distribution: BTreeMap<usize, usize>,
+    order: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct FrontierProfile {
+    width: usize,
+    width_sum: u128,
     order: Vec<usize>,
 }
 
@@ -1154,6 +1205,96 @@ struct RowUnits147InvariantShift31GraphAnalysis {
     nonfixed_row_sum_target_count: usize,
     fixed_graph: ShiftGraphStats,
     nonfixed_graph: ShiftGraphStats,
+    value_profile: Option<RowUnits147InvariantShift31ValueProfile>,
+    compressed_profile: Option<RowUnits147InvariantShift31CompressedProfile>,
+    exact_shift31: Option<RowUnits147InvariantShift31ExactAnalysis>,
+}
+
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantShift31ValueProfile {
+    value_limit: usize,
+    fixed: Shift31ValueDpProfile,
+    nonfixed: Shift31ValueDpProfile,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Shift31ValueDpProfile {
+    completed: bool,
+    processed_steps: usize,
+    peak_assignment_count: usize,
+    peak_assignment_capacity: u128,
+    peak_assignment_fill_ppm: u128,
+    peak_value_count: usize,
+    peak_values_per_assignment: usize,
+    last_step: Option<Shift31ValueDpStepProfile>,
+}
+
+#[derive(Clone, Debug)]
+struct Shift31ValueDpStepProfile {
+    step: usize,
+    variable: usize,
+    active_width: usize,
+    assignment_capacity: u128,
+    assignment_fill_ppm: u128,
+    assignment_count: usize,
+    value_count: usize,
+    max_values_per_assignment: usize,
+}
+
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantShift31CompressedProfile {
+    signature_limit: usize,
+    fixed: Shift31CompressedDpProfile,
+    nonfixed: Shift31CompressedDpProfile,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Shift31CompressedDpProfile {
+    completed: bool,
+    processed_steps: usize,
+    peak_assignment_count: usize,
+    peak_assignment_capacity: u128,
+    peak_assignment_fill_ppm: u128,
+    peak_signature_count: usize,
+    peak_energy_bit_count: usize,
+    peak_signatures_per_assignment: usize,
+    peak_energy_bits_per_signature: usize,
+    last_step: Option<Shift31CompressedDpStepProfile>,
+}
+
+#[derive(Clone, Debug)]
+struct Shift31CompressedDpStepProfile {
+    step: usize,
+    variable: usize,
+    active_width: usize,
+    assignment_capacity: u128,
+    assignment_fill_ppm: u128,
+    assignment_count: usize,
+    signature_count: usize,
+    energy_bit_count: usize,
+    max_signatures_per_assignment: usize,
+    max_energy_bits_per_signature: usize,
+}
+
+#[derive(Clone, Debug)]
+struct FixedShift31PackedSignature {
+    key: u32,
+    energy_bits: Shift31EnergyBits,
+}
+
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantShift31ExactAnalysis {
+    fixed_target_count: usize,
+    fixed_targets_with_values: usize,
+    max_fixed_value_count: usize,
+    nonfixed_target_count: usize,
+    nonfixed_targets_with_values: usize,
+    max_nonfixed_value_count: usize,
+    row_value_cache_entries: usize,
+    max_row_value_count: usize,
+    feasible_row_pair_count: u128,
+    feasible_pattern_log10: Option<f64>,
+    top_feasible_samples: Vec<String>,
 }
 
 fn cyclic_multiplier_hypotheses(
@@ -1714,6 +1855,14 @@ fn row_units_147_invariant_marginals_for_bundle(
 fn row_units_147_invariant_shift31_graph_analysis(
     pair_masses: &[RowBundlePairMass],
     subgroup: &[u32],
+    include_exact_shift31: bool,
+    include_value_profile: bool,
+    include_compressed_profile: bool,
+    profile_limit: usize,
+    fixed_compressed_profile_cache: &mut HashMap<
+        (Vec<(i32, i32, i32)>, usize),
+        Shift31CompressedDpProfile,
+    >,
 ) -> RowUnits147InvariantShift31GraphAnalysis {
     debug_assert_eq!(sorted_residues(subgroup, 9), vec![1, 4, 7]);
     debug_assert_eq!(subgroup.len(), 3);
@@ -1743,7 +1892,7 @@ fn row_units_147_invariant_shift31_graph_analysis(
         );
     }
 
-    let mut exact_row_pair_count = 0u128;
+    let mut exact_row_pairs = Vec::<([i32; 9], [i32; 9], f64)>::new();
     let mut fixed_triple_targets = BTreeSet::new();
     let mut nonfixed_row_sum_targets = BTreeSet::new();
     for pair in &bundle_pairs {
@@ -1761,7 +1910,11 @@ fn row_units_147_invariant_shift31_graph_analysis(
                 if !row_paf_pair_is_exact(&left.paf, &right.paf) {
                     continue;
                 }
-                exact_row_pair_count += 1;
+                exact_row_pairs.push((
+                    left.rows,
+                    right.rows,
+                    left.pattern_log10 + right.pattern_log10,
+                ));
                 fixed_triple_targets.insert((left.rows[0], left.rows[3], left.rows[6]));
                 fixed_triple_targets.insert((right.rows[0], right.rows[3], right.rows[6]));
                 nonfixed_row_sum_targets.insert(left.rows[1]);
@@ -1775,11 +1928,55 @@ fn row_units_147_invariant_shift31_graph_analysis(
     RowUnits147InvariantShift31GraphAnalysis {
         subgroup: subgroup.to_vec(),
         column_generator,
-        exact_row_pair_count,
+        exact_row_pair_count: exact_row_pairs.len() as u128,
         fixed_triple_target_count: fixed_triple_targets.len(),
         nonfixed_row_sum_target_count: nonfixed_row_sum_targets.len(),
         fixed_graph: col10_fixed_triple_shift1_graph_stats(),
         nonfixed_graph: col10_nonfixed_row_orbit_shift31_graph_stats(column_generator),
+        value_profile: include_value_profile.then(|| {
+            row_units_147_invariant_shift31_value_profile(
+                column_generator,
+                &fixed_triple_targets,
+                &nonfixed_row_sum_targets,
+                profile_limit,
+            )
+        }),
+        compressed_profile: if include_compressed_profile {
+            let fixed_cache_key = (
+                fixed_triple_targets.iter().copied().collect::<Vec<_>>(),
+                profile_limit,
+            );
+            let fixed = if let Some(profile) = fixed_compressed_profile_cache.get(&fixed_cache_key)
+            {
+                profile.clone()
+            } else {
+                let profile = col10_fixed_triple_shift31_compressed_profile(
+                    &fixed_triple_targets,
+                    profile_limit,
+                );
+                fixed_compressed_profile_cache.insert(fixed_cache_key, profile.clone());
+                profile
+            };
+            Some(RowUnits147InvariantShift31CompressedProfile {
+                signature_limit: profile_limit,
+                fixed,
+                nonfixed: col10_nonfixed_row_orbit_shift31_compressed_profile(
+                    column_generator,
+                    &nonfixed_row_sum_targets,
+                    profile_limit,
+                ),
+            })
+        } else {
+            None
+        },
+        exact_shift31: include_exact_shift31.then(|| {
+            row_units_147_invariant_shift31_exact_analysis(
+                column_generator,
+                &exact_row_pairs,
+                &fixed_triple_targets,
+                &nonfixed_row_sum_targets,
+            )
+        }),
     }
 }
 
@@ -1789,6 +1986,126 @@ fn row_units_147_order3_column_generator(subgroup: &[u32]) -> Option<u32> {
         .copied()
         .find(|unit| unit % 9 == 4)
         .map(|unit| unit % 37)
+}
+
+fn row_units_147_invariant_shift31_value_profile(
+    column_generator: u32,
+    fixed_triple_targets: &BTreeSet<(i32, i32, i32)>,
+    nonfixed_row_sum_targets: &BTreeSet<i32>,
+    value_limit: usize,
+) -> RowUnits147InvariantShift31ValueProfile {
+    RowUnits147InvariantShift31ValueProfile {
+        value_limit,
+        fixed: col10_fixed_triple_shift31_value_profile(fixed_triple_targets, value_limit),
+        nonfixed: col10_nonfixed_row_orbit_shift31_value_profile(
+            column_generator,
+            nonfixed_row_sum_targets,
+            value_limit,
+        ),
+    }
+}
+
+fn row_units_147_invariant_shift31_exact_analysis(
+    column_generator: u32,
+    exact_row_pairs: &[([i32; 9], [i32; 9], f64)],
+    fixed_triple_targets: &BTreeSet<(i32, i32, i32)>,
+    nonfixed_row_sum_targets: &BTreeSet<i32>,
+) -> RowUnits147InvariantShift31ExactAnalysis {
+    let fixed_values = col10_fixed_triple_shift31_values_for_targets(fixed_triple_targets);
+    let nonfixed_values = col10_nonfixed_row_orbit_shift31_values_for_targets(
+        column_generator,
+        nonfixed_row_sum_targets,
+    );
+    let max_fixed_value_count = fixed_values.values().map(BTreeSet::len).max().unwrap_or(0);
+    let max_nonfixed_value_count = nonfixed_values
+        .values()
+        .map(BTreeSet::len)
+        .max()
+        .unwrap_or(0);
+
+    let mut row_value_cache = HashMap::<[i32; 9], BTreeSet<i32>>::new();
+    let mut feasible_row_pair_count = 0u128;
+    let mut feasible_pattern_log10 = None;
+    let mut top_feasible_samples = Vec::<(f64, [i32; 9], [i32; 9])>::new();
+    for (left_rows, right_rows, pattern_log10) in exact_row_pairs {
+        let left_values = row_value_cache
+            .entry(*left_rows)
+            .or_insert_with(|| {
+                row_units_147_invariant_shift31_values_for_rows(
+                    *left_rows,
+                    &fixed_values,
+                    &nonfixed_values,
+                )
+            })
+            .clone();
+        let right_values = row_value_cache
+            .entry(*right_rows)
+            .or_insert_with(|| {
+                row_units_147_invariant_shift31_values_for_rows(
+                    *right_rows,
+                    &fixed_values,
+                    &nonfixed_values,
+                )
+            })
+            .clone();
+        if sumset_has_target(&left_values, &right_values, LP333_ACTUAL_SHIFT_TARGET) {
+            feasible_row_pair_count += 1;
+            feasible_pattern_log10 =
+                Some(log10_sum_optional(feasible_pattern_log10, *pattern_log10));
+            push_top_row_units_147_sample(
+                &mut top_feasible_samples,
+                *pattern_log10,
+                *left_rows,
+                *right_rows,
+                5,
+            );
+        }
+    }
+
+    RowUnits147InvariantShift31ExactAnalysis {
+        fixed_target_count: fixed_triple_targets.len(),
+        fixed_targets_with_values: fixed_values.len(),
+        max_fixed_value_count,
+        nonfixed_target_count: nonfixed_row_sum_targets.len(),
+        nonfixed_targets_with_values: nonfixed_values.len(),
+        max_nonfixed_value_count,
+        row_value_cache_entries: row_value_cache.len(),
+        max_row_value_count: row_value_cache
+            .values()
+            .map(BTreeSet::len)
+            .max()
+            .unwrap_or(0),
+        feasible_row_pair_count,
+        feasible_pattern_log10,
+        top_feasible_samples: top_feasible_samples
+            .into_iter()
+            .map(|(log10_count, left, right)| {
+                format!(
+                    "log10_count={:.3}:{}|{}",
+                    log10_count,
+                    format_i32_list(&left),
+                    format_i32_list(&right)
+                )
+            })
+            .collect(),
+    }
+}
+
+fn row_units_147_invariant_shift31_values_for_rows(
+    rows: [i32; 9],
+    fixed_values: &HashMap<(i32, i32, i32), BTreeSet<i32>>,
+    nonfixed_values: &HashMap<i32, BTreeSet<i32>>,
+) -> BTreeSet<i32> {
+    let Some(fixed) = fixed_values.get(&(rows[0], rows[3], rows[6])) else {
+        return BTreeSet::new();
+    };
+    let Some(row_147) = nonfixed_values.get(&rows[1]) else {
+        return BTreeSet::new();
+    };
+    let Some(row_258) = nonfixed_values.get(&rows[2]) else {
+        return BTreeSet::new();
+    };
+    sumset_values(&sumset_values(fixed, row_147), row_258)
 }
 
 fn row_pattern_counts_for_column_units(
@@ -1894,7 +2211,7 @@ fn row_units_147_invariant_shift31_graph_summary(
     analysis: &RowUnits147InvariantShift31GraphAnalysis,
 ) -> String {
     format!(
-        "subgroup_crt={},column_generator={},exact_row_pairs={},fixed_triple_targets={},nonfixed_row_sum_targets={},fixed_graph={},nonfixed_graph={}",
+        "subgroup_crt={},column_generator={},exact_row_pairs={},fixed_triple_targets={},nonfixed_row_sum_targets={},fixed_graph={},nonfixed_graph={},value_profile={},compressed_profile={},exact_shift31={}",
         format_crt_pair_list(&analysis.subgroup),
         analysis.column_generator,
         analysis.exact_row_pair_count,
@@ -1902,12 +2219,142 @@ fn row_units_147_invariant_shift31_graph_summary(
         analysis.nonfixed_row_sum_target_count,
         shift_graph_stats_summary(&analysis.fixed_graph),
         shift_graph_stats_summary(&analysis.nonfixed_graph),
+        analysis
+            .value_profile
+            .as_ref()
+            .map(row_units_147_invariant_shift31_value_profile_summary)
+            .unwrap_or_else(|| "skipped".to_string()),
+        analysis
+            .compressed_profile
+            .as_ref()
+            .map(row_units_147_invariant_shift31_compressed_profile_summary)
+            .unwrap_or_else(|| "skipped".to_string()),
+        analysis
+            .exact_shift31
+            .as_ref()
+            .map(row_units_147_invariant_shift31_exact_summary)
+            .unwrap_or_else(|| "skipped".to_string()),
+    )
+}
+
+fn row_units_147_invariant_shift31_compressed_profile_summary(
+    profile: &RowUnits147InvariantShift31CompressedProfile,
+) -> String {
+    format!(
+        "limit={},fixed={},nonfixed={}",
+        profile.signature_limit,
+        shift31_compressed_dp_profile_summary(&profile.fixed),
+        shift31_compressed_dp_profile_summary(&profile.nonfixed),
+    )
+}
+
+fn shift31_compressed_dp_profile_summary(profile: &Shift31CompressedDpProfile) -> String {
+    let last_step = profile
+        .last_step
+        .as_ref()
+        .map(shift31_compressed_dp_step_profile_summary)
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "completed={},steps={},peak_assignments={},peak_assignment_capacity={},peak_assignment_fill_ppm={},peak_signatures={},peak_energy_bits={},peak_signatures_per_assignment={},peak_energy_bits_per_signature={},last={}",
+        profile.completed,
+        profile.processed_steps,
+        profile.peak_assignment_count,
+        profile.peak_assignment_capacity,
+        profile.peak_assignment_fill_ppm,
+        profile.peak_signature_count,
+        profile.peak_energy_bit_count,
+        profile.peak_signatures_per_assignment,
+        profile.peak_energy_bits_per_signature,
+        last_step
+    )
+}
+
+fn shift31_compressed_dp_step_profile_summary(step: &Shift31CompressedDpStepProfile) -> String {
+    format!(
+        "step{}:var{}:width{}:capacity{}:fill_ppm{}:assignments{}:signatures{}:energy_bits{}:max_signatures{}:max_energy_bits{}",
+        step.step,
+        step.variable,
+        step.active_width,
+        step.assignment_capacity,
+        step.assignment_fill_ppm,
+        step.assignment_count,
+        step.signature_count,
+        step.energy_bit_count,
+        step.max_signatures_per_assignment,
+        step.max_energy_bits_per_signature
+    )
+}
+
+fn row_units_147_invariant_shift31_value_profile_summary(
+    profile: &RowUnits147InvariantShift31ValueProfile,
+) -> String {
+    format!(
+        "limit={},fixed={},nonfixed={}",
+        profile.value_limit,
+        shift31_value_dp_profile_summary(&profile.fixed),
+        shift31_value_dp_profile_summary(&profile.nonfixed),
+    )
+}
+
+fn shift31_value_dp_profile_summary(profile: &Shift31ValueDpProfile) -> String {
+    let last_step = profile
+        .last_step
+        .as_ref()
+        .map(shift31_value_dp_step_profile_summary)
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "completed={},steps={},peak_assignments={},peak_assignment_capacity={},peak_assignment_fill_ppm={},peak_values={},peak_values_per_assignment={},last={}",
+        profile.completed,
+        profile.processed_steps,
+        profile.peak_assignment_count,
+        profile.peak_assignment_capacity,
+        profile.peak_assignment_fill_ppm,
+        profile.peak_value_count,
+        profile.peak_values_per_assignment,
+        last_step
+    )
+}
+
+fn shift31_value_dp_step_profile_summary(step: &Shift31ValueDpStepProfile) -> String {
+    format!(
+        "step{}:var{}:width{}:capacity{}:fill_ppm{}:assignments{}:values{}:max_values{}",
+        step.step,
+        step.variable,
+        step.active_width,
+        step.assignment_capacity,
+        step.assignment_fill_ppm,
+        step.assignment_count,
+        step.value_count,
+        step.max_values_per_assignment
+    )
+}
+
+fn row_units_147_invariant_shift31_exact_summary(
+    analysis: &RowUnits147InvariantShift31ExactAnalysis,
+) -> String {
+    let pattern_log10 = analysis
+        .feasible_pattern_log10
+        .map(|value| format!("{value:.3}"))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "fixed_targets={}/{},max_fixed_values={},nonfixed_targets={}/{},max_nonfixed_values={},row_value_cache_entries={},max_row_values={},feasible_row_pairs={},feasible_pattern_log10={},top_feasible_samples={}",
+        analysis.fixed_targets_with_values,
+        analysis.fixed_target_count,
+        analysis.max_fixed_value_count,
+        analysis.nonfixed_targets_with_values,
+        analysis.nonfixed_target_count,
+        analysis.max_nonfixed_value_count,
+        analysis.row_value_cache_entries,
+        analysis.max_row_value_count,
+        analysis.feasible_row_pair_count,
+        pattern_log10,
+        analysis.top_feasible_samples.join("|")
     )
 }
 
 fn shift_graph_stats_summary(stats: &ShiftGraphStats) -> String {
     format!(
-        "vars={},domain={},edges={},weighted_edges={},self_terms={},max_degree={},min_fill_width={},min_fill_added_edges={},min_fill_bag_sizes={},max_bag_domain_states={},min_fill_order={}",
+        "vars={},domain={},edges={},weighted_edges={},self_terms={},max_degree={},min_fill_width={},min_fill_added_edges={},min_fill_bag_sizes={},max_bag_domain_states={},min_fill_order={},frontier_width={},frontier_max_domain_states={},frontier_order={}",
         stats.variable_count,
         stats.domain_size,
         stats.edge_count,
@@ -1919,6 +2366,9 @@ fn shift_graph_stats_summary(stats: &ShiftGraphStats) -> String {
         format_size_dist(&stats.min_fill_bag_size_distribution),
         stats.max_bag_domain_states,
         format_usize_list(&stats.min_fill_order),
+        stats.frontier_width,
+        stats.frontier_max_domain_states,
+        format_usize_list(&stats.frontier_order),
     )
 }
 
@@ -2488,6 +2938,11 @@ fn build_col10_fixed_shift1_table() -> HashMap<i32, BTreeSet<i32>> {
 }
 
 fn col10_fixed_triple_shift1_graph_stats() -> ShiftGraphStats {
+    let (edge_weights, self_terms) = col10_fixed_shift1_edge_weights();
+    shift_graph_stats(13, &edge_weights, self_terms, 8)
+}
+
+fn col10_fixed_shift1_edge_weights() -> (HashMap<(usize, usize), i32>, i32) {
     let orbits = col10_column_orbits();
     let orbit_lookup = col10_orbit_lookup(&orbits);
     let mut edge_weights = HashMap::<(usize, usize), i32>::new();
@@ -2506,7 +2961,391 @@ fn col10_fixed_triple_shift1_graph_stats() -> ShiftGraphStats {
             *edge_weights.entry(key).or_default() += 1;
         }
     }
-    shift_graph_stats(orbits.len(), &edge_weights, self_terms, 8)
+    (edge_weights, self_terms)
+}
+
+fn col10_fixed_triple_shift31_values_for_targets(
+    targets: &BTreeSet<(i32, i32, i32)>,
+) -> HashMap<(i32, i32, i32), BTreeSet<i32>> {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|(row_0_sum, row_3_sum, row_6_sum)| {
+            col10_fixed_row_pattern_count(*row_0_sum) > 0
+                && col10_fixed_row_pattern_count(*row_3_sum) > 0
+                && col10_fixed_row_pattern_count(*row_6_sum) > 0
+        })
+        .collect::<BTreeSet<_>>();
+    if targets.is_empty() {
+        return HashMap::new();
+    }
+
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let domains = col10_fixed_triple_domains(&orbits);
+    let edge_energy = col10_fixed_triple_shift31_edge_energy_table(&orbit_lookup, &domains);
+    let (edge_weights, _) = col10_fixed_shift1_edge_weights();
+    let adjacency = weighted_graph_adjacency(orbits.len(), &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let reachable_partials =
+        col10_fixed_triple_reachable_partials_by_order_suffix(&targets, &order, &orbits);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32)>>::from([(
+        Vec::new(),
+        HashSet::from([(0, 0, 0, 0)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let variable_size = orbits[variable].len() as i32;
+        let variable_sums = domains[variable]
+            .iter()
+            .map(|domain| {
+                [
+                    variable_size * domain[0],
+                    variable_size * domain[1],
+                    variable_size * domain[2],
+                ]
+            })
+            .collect::<Vec<_>>();
+        let variable_loop_energy = (0..domains[variable].len())
+            .map(|state_index| edge_energy[variable][variable][state_index][state_index])
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32)>>::new();
+
+        for (assignment, values) in &states {
+            if values.is_empty() {
+                continue;
+            }
+            for state_index in 0..domains[variable].len() {
+                let mut added_energy = variable_loop_energy[state_index];
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    if !adjacency[*active_variable].contains(&variable) {
+                        continue;
+                    }
+                    added_energy += edge_energy[*active_variable][variable]
+                        [assignment[active_position]][state_index];
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let reachable = &reachable_partials[step + 1];
+                let mut accepted_values = Vec::new();
+                for (row_0, row_3, row_6, energy) in values {
+                    let next_row_0 = row_0 + variable_sums[state_index][0];
+                    let next_row_3 = row_3 + variable_sums[state_index][1];
+                    let next_row_6 = row_6 + variable_sums[state_index][2];
+                    if !reachable.contains(&(next_row_0, next_row_3, next_row_6)) {
+                        continue;
+                    }
+                    accepted_values.push((
+                        next_row_0,
+                        next_row_3,
+                        next_row_6,
+                        energy + added_energy,
+                    ));
+                }
+                if !accepted_values.is_empty() {
+                    let projected_values = next_states.entry(projected_assignment).or_default();
+                    for value in accepted_values {
+                        projected_values.insert(value);
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+    }
+
+    debug_assert!(active_variables.is_empty());
+    let mut table = HashMap::<(i32, i32, i32), BTreeSet<i32>>::new();
+    for signatures in states.values() {
+        for (row_0, row_3, row_6, energy) in signatures {
+            let target = (*row_0, *row_3, *row_6);
+            if targets.contains(&target) {
+                table.entry(target).or_default().insert(*energy);
+            }
+        }
+    }
+    table
+}
+
+fn col10_fixed_triple_shift31_value_profile(
+    targets: &BTreeSet<(i32, i32, i32)>,
+    value_limit: usize,
+) -> Shift31ValueDpProfile {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|(row_0_sum, row_3_sum, row_6_sum)| {
+            col10_fixed_row_pattern_count(*row_0_sum) > 0
+                && col10_fixed_row_pattern_count(*row_3_sum) > 0
+                && col10_fixed_row_pattern_count(*row_6_sum) > 0
+        })
+        .collect::<BTreeSet<_>>();
+    let mut profile = Shift31ValueDpProfile::default();
+    if targets.is_empty() {
+        profile.completed = true;
+        return profile;
+    }
+
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let domains = col10_fixed_triple_domains(&orbits);
+    let edge_energy = col10_fixed_triple_shift31_edge_energy_table(&orbit_lookup, &domains);
+    let (edge_weights, _) = col10_fixed_shift1_edge_weights();
+    let adjacency = weighted_graph_adjacency(orbits.len(), &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let reachable_partials =
+        col10_fixed_triple_reachable_partials_by_order_suffix(&targets, &order, &orbits);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32)>>::from([(
+        Vec::new(),
+        HashSet::from([(0, 0, 0, 0)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let variable_size = orbits[variable].len() as i32;
+        let variable_sums = domains[variable]
+            .iter()
+            .map(|domain| {
+                [
+                    variable_size * domain[0],
+                    variable_size * domain[1],
+                    variable_size * domain[2],
+                ]
+            })
+            .collect::<Vec<_>>();
+        let variable_loop_energy = (0..domains[variable].len())
+            .map(|state_index| edge_energy[variable][variable][state_index][state_index])
+            .collect::<Vec<_>>();
+        let reachable = &reachable_partials[step + 1];
+        let mut next_states = HashMap::<Vec<usize>, HashSet<(i32, i32, i32, i32)>>::new();
+        let mut next_value_count = 0usize;
+        let mut limit_reached = false;
+
+        'assignments: for (assignment, values) in &states {
+            if values.is_empty() {
+                continue;
+            }
+            for state_index in 0..domains[variable].len() {
+                let mut added_energy = variable_loop_energy[state_index];
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    if !adjacency[*active_variable].contains(&variable) {
+                        continue;
+                    }
+                    added_energy += edge_energy[*active_variable][variable]
+                        [assignment[active_position]][state_index];
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut accepted_values = Vec::new();
+                for (row_0, row_3, row_6, energy) in values {
+                    let next_row_0 = row_0 + variable_sums[state_index][0];
+                    let next_row_3 = row_3 + variable_sums[state_index][1];
+                    let next_row_6 = row_6 + variable_sums[state_index][2];
+                    if !reachable.contains(&(next_row_0, next_row_3, next_row_6)) {
+                        continue;
+                    }
+                    accepted_values.push((
+                        next_row_0,
+                        next_row_3,
+                        next_row_6,
+                        energy + added_energy,
+                    ));
+                }
+                if !accepted_values.is_empty() {
+                    let projected_values = next_states.entry(projected_assignment).or_default();
+                    for value in accepted_values {
+                        if projected_values.insert(value) {
+                            next_value_count += 1;
+                            if value_limit > 0 && next_value_count >= value_limit {
+                                limit_reached = true;
+                                break 'assignments;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+        shift31_record_profile_step(
+            &mut profile,
+            step,
+            variable,
+            active_variables.len(),
+            8,
+            &states,
+        );
+        if limit_reached {
+            return profile;
+        }
+    }
+
+    profile.completed = true;
+    profile
+}
+
+fn col10_fixed_triple_shift31_compressed_profile(
+    targets: &BTreeSet<(i32, i32, i32)>,
+    signature_limit: usize,
+) -> Shift31CompressedDpProfile {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|(row_0_sum, row_3_sum, row_6_sum)| {
+            col10_fixed_row_pattern_count(*row_0_sum) > 0
+                && col10_fixed_row_pattern_count(*row_3_sum) > 0
+                && col10_fixed_row_pattern_count(*row_6_sum) > 0
+        })
+        .collect::<BTreeSet<_>>();
+    let mut profile = Shift31CompressedDpProfile::default();
+    if targets.is_empty() {
+        profile.completed = true;
+        return profile;
+    }
+
+    let orbits = col10_column_orbits();
+    let orbit_lookup = col10_orbit_lookup(&orbits);
+    let domains = col10_fixed_triple_domains(&orbits);
+    let edge_energy = col10_fixed_triple_shift31_edge_energy_table(&orbit_lookup, &domains);
+    let (edge_weights, _) = col10_fixed_shift1_edge_weights();
+    let adjacency = weighted_graph_adjacency(orbits.len(), &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let reachable_partials =
+        col10_fixed_triple_reachable_partials_by_order_suffix(&targets, &order, &orbits);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = vec![vec![FixedShift31PackedSignature {
+        key: fixed_shift31_pack_signature(0, 0, 0),
+        energy_bits: shift31_single_energy_bits(0),
+    }]];
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let variable_size = orbits[variable].len() as i32;
+        let next_capacity = shift31_assignment_capacity(8, next_active_variables.len());
+        let variable_sums = domains[variable]
+            .iter()
+            .map(|domain| {
+                [
+                    variable_size * domain[0],
+                    variable_size * domain[1],
+                    variable_size * domain[2],
+                ]
+            })
+            .collect::<Vec<_>>();
+        let variable_loop_energy = (0..domains[variable].len())
+            .map(|state_index| edge_energy[variable][variable][state_index][state_index])
+            .collect::<Vec<_>>();
+        let reachable = &reachable_partials[step + 1];
+        let mut next_states = vec![Vec::<FixedShift31PackedSignature>::new(); next_capacity];
+        let mut next_signature_count = 0usize;
+        let mut limit_reached = false;
+
+        'assignments: for (assignment_code, signatures) in states.iter().enumerate() {
+            if signatures.is_empty() {
+                continue;
+            }
+            for state_index in 0..domains[variable].len() {
+                let mut added_energy = variable_loop_energy[state_index];
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    if !adjacency[*active_variable].contains(&variable) {
+                        continue;
+                    }
+                    let active_state_index =
+                        shift31_assignment_digit(assignment_code, 8, active_position);
+                    added_energy +=
+                        edge_energy[*active_variable][variable][active_state_index][state_index];
+                }
+                let projected_assignment_code = fixed_shift31_project_assignment_code(
+                    assignment_code,
+                    &active_variables,
+                    &next_active_variables,
+                    variable,
+                    state_index,
+                );
+                let projected_signatures = &mut next_states[projected_assignment_code];
+                for signature in signatures {
+                    let (row_0, row_3, row_6) = fixed_shift31_unpack_signature(signature.key);
+                    let next_row_0 = row_0 + variable_sums[state_index][0];
+                    let next_row_3 = row_3 + variable_sums[state_index][1];
+                    let next_row_6 = row_6 + variable_sums[state_index][2];
+                    if !reachable.contains(&(next_row_0, next_row_3, next_row_6)) {
+                        continue;
+                    }
+                    let key = fixed_shift31_pack_signature(next_row_0, next_row_3, next_row_6);
+                    if fixed_shift31_or_insert_shifted_signature(
+                        projected_signatures,
+                        key,
+                        &signature.energy_bits,
+                        added_energy,
+                    ) {
+                        next_signature_count += 1;
+                        if signature_limit > 0 && next_signature_count >= signature_limit {
+                            limit_reached = true;
+                            break 'assignments;
+                        }
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+        shift31_record_fixed_dense_compressed_profile_step(
+            &mut profile,
+            step,
+            variable,
+            active_variables.len(),
+            8,
+            &states,
+        );
+        if limit_reached {
+            return profile;
+        }
+    }
+
+    profile.completed = true;
+    profile
 }
 
 #[cfg(test)]
@@ -2694,6 +3533,50 @@ fn col10_fixed_triple_reachable_row_partials_by_remaining(
     by_remaining
 }
 
+fn col10_fixed_triple_reachable_partials_by_order_suffix(
+    targets: &BTreeSet<(i32, i32, i32)>,
+    order: &[usize],
+    orbits: &[Vec<usize>],
+) -> Vec<HashSet<(i32, i32, i32)>> {
+    let mut completions_by_suffix = vec![HashSet::<(i32, i32, i32)>::new(); order.len() + 1];
+    completions_by_suffix[order.len()].insert((0, 0, 0));
+    for suffix_start in (0..order.len()).rev() {
+        let variable_size = orbits[order[suffix_start]].len() as i32;
+        let mut completions = HashSet::new();
+        for (tail_0, tail_3, tail_6) in &completions_by_suffix[suffix_start + 1] {
+            for sign_0 in [-1, 1] {
+                for sign_3 in [-1, 1] {
+                    for sign_6 in [-1, 1] {
+                        completions.insert((
+                            tail_0 + variable_size * sign_0,
+                            tail_3 + variable_size * sign_3,
+                            tail_6 + variable_size * sign_6,
+                        ));
+                    }
+                }
+            }
+        }
+        completions_by_suffix[suffix_start] = completions;
+    }
+
+    completions_by_suffix
+        .iter()
+        .map(|completions| {
+            let mut partials = HashSet::new();
+            for (target_0, target_3, target_6) in targets {
+                for (completion_0, completion_3, completion_6) in completions {
+                    partials.insert((
+                        target_0 - completion_0,
+                        target_3 - completion_3,
+                        target_6 - completion_6,
+                    ));
+                }
+            }
+            partials
+        })
+        .collect()
+}
+
 #[cfg(test)]
 fn col10_insert_reachable_row_partials(
     partials: &mut HashSet<i32>,
@@ -2707,7 +3590,6 @@ fn col10_insert_reachable_row_partials(
     }
 }
 
-#[cfg(test)]
 fn col10_fixed_triple_domains(orbits: &[Vec<usize>]) -> Vec<Vec<[i32; 3]>> {
     orbits
         .iter()
@@ -2752,6 +3634,31 @@ fn col10_fixed_shift1_orbit_pair_has_edges(
     })
 }
 
+fn col10_fixed_triple_shift31_edge_energy_table(
+    orbit_lookup: &[(usize, usize); 37],
+    domains: &[Vec<[i32; 3]>],
+) -> Vec<Vec<[[i32; 8]; 8]>> {
+    let mut table = vec![vec![[[0i32; 8]; 8]; domains.len()]; domains.len()];
+    for left_orbit in 0..domains.len() {
+        for right_orbit in 0..domains.len() {
+            for left_state_index in 0..domains[left_orbit].len() {
+                for right_state_index in 0..domains[right_orbit].len() {
+                    table[left_orbit][right_orbit][left_state_index][right_state_index] =
+                        col10_fixed_triple_shift31_edge_energy(
+                            orbit_lookup,
+                            domains,
+                            left_orbit,
+                            left_state_index,
+                            right_orbit,
+                            right_state_index,
+                        );
+                }
+            }
+        }
+    }
+    table
+}
+
 #[cfg(test)]
 fn col10_fixed_triple_shift1_edge_energy(
     orbit_lookup: &[(usize, usize); 37],
@@ -2779,9 +3686,39 @@ fn col10_fixed_triple_shift1_edge_energy(
     energy
 }
 
+fn col10_fixed_triple_shift31_edge_energy(
+    orbit_lookup: &[(usize, usize); 37],
+    domains: &[Vec<[i32; 3]>],
+    left_orbit: usize,
+    left_state_index: usize,
+    right_orbit: usize,
+    right_state_index: usize,
+) -> i32 {
+    let left = domains[left_orbit][left_state_index];
+    let right = domains[right_orbit][right_state_index];
+    let mut energy = 0;
+    for column in 0..37 {
+        let source_orbit = orbit_lookup[column].0;
+        let target_orbit = orbit_lookup[(column + 1) % 37].0;
+        if source_orbit == left_orbit && target_orbit == right_orbit {
+            energy += sign_triple_shift31_dot(left, right);
+        } else if left_orbit != right_orbit
+            && source_orbit == right_orbit
+            && target_orbit == left_orbit
+        {
+            energy += sign_triple_shift31_dot(right, left);
+        }
+    }
+    energy
+}
+
 #[cfg(test)]
 fn sign_triple_dot(left: [i32; 3], right: [i32; 3]) -> i32 {
     left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+fn sign_triple_shift31_dot(left: [i32; 3], right: [i32; 3]) -> i32 {
+    left[0] * right[1] + left[1] * right[2] + left[2] * right[0]
 }
 
 #[cfg(test)]
@@ -2794,6 +3731,324 @@ fn col10_nonfixed_row_orbit_shift31_graph_stats(column_generator: u32) -> ShiftG
     let (edge_weights, constant_energy) =
         col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
     shift_graph_stats(37, &edge_weights, constant_energy, 2)
+}
+
+fn col10_nonfixed_row_orbit_shift31_values_for_targets(
+    column_generator: u32,
+    targets: &BTreeSet<i32>,
+) -> HashMap<i32, BTreeSet<i32>> {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|target| is_valid_row_sum(*target))
+        .collect::<BTreeSet<_>>();
+    if targets.is_empty() {
+        return HashMap::new();
+    }
+
+    let (edge_weights, constant_energy) =
+        col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
+    let adjacency = weighted_graph_adjacency(37, &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, HashSet<(i32, i32)>>::from([(
+        Vec::new(),
+        HashSet::from([(0, constant_energy)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let remaining_variables = (order.len() - step - 1) as i32;
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, HashSet<(i32, i32)>>::new();
+
+        for (assignment, values) in &states {
+            if values.is_empty() {
+                continue;
+            }
+            for state_index in 0..2usize {
+                let sign = binary_domain_sign(state_index);
+                let mut added_energy = 0i32;
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    let key = sorted_pair(*active_variable, variable);
+                    let Some(weight) = edge_weights.get(&key) else {
+                        continue;
+                    };
+                    let active_sign = binary_domain_sign(assignment[active_position]);
+                    added_energy += weight * active_sign * sign;
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut accepted_values = Vec::new();
+                for (row_sum, energy) in values {
+                    let next_row_sum = row_sum + sign;
+                    if !row_sum_can_reach_any_target(next_row_sum, &targets, remaining_variables) {
+                        continue;
+                    }
+                    accepted_values.push((next_row_sum, energy + added_energy));
+                }
+                if !accepted_values.is_empty() {
+                    let projected_values = next_states.entry(projected_assignment).or_default();
+                    for value in accepted_values {
+                        projected_values.insert(value);
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+    }
+
+    debug_assert!(active_variables.is_empty());
+    let mut table = HashMap::<i32, BTreeSet<i32>>::new();
+    for signatures in states.values() {
+        for (row_sum, energy) in signatures {
+            if targets.contains(row_sum) {
+                table.entry(*row_sum).or_default().insert(*energy);
+            }
+        }
+    }
+    table
+}
+
+fn col10_nonfixed_row_orbit_shift31_value_profile(
+    column_generator: u32,
+    targets: &BTreeSet<i32>,
+    value_limit: usize,
+) -> Shift31ValueDpProfile {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|target| is_valid_row_sum(*target))
+        .collect::<BTreeSet<_>>();
+    let mut profile = Shift31ValueDpProfile::default();
+    if targets.is_empty() {
+        profile.completed = true;
+        return profile;
+    }
+
+    let (edge_weights, constant_energy) =
+        col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
+    let adjacency = weighted_graph_adjacency(37, &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let mut active_variables = Vec::<usize>::new();
+    let mut states = HashMap::<Vec<usize>, HashSet<(i32, i32)>>::from([(
+        Vec::new(),
+        HashSet::from([(0, constant_energy)]),
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let remaining_variables = (order.len() - step - 1) as i32;
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, HashSet<(i32, i32)>>::new();
+        let mut next_value_count = 0usize;
+        let mut limit_reached = false;
+
+        'assignments: for (assignment, values) in &states {
+            if values.is_empty() {
+                continue;
+            }
+            for state_index in 0..2usize {
+                let sign = binary_domain_sign(state_index);
+                let mut added_energy = 0i32;
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    let key = sorted_pair(*active_variable, variable);
+                    let Some(weight) = edge_weights.get(&key) else {
+                        continue;
+                    };
+                    let active_sign = binary_domain_sign(assignment[active_position]);
+                    added_energy += weight * active_sign * sign;
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let mut accepted_values = Vec::new();
+                for (row_sum, energy) in values {
+                    let next_row_sum = row_sum + sign;
+                    if !row_sum_can_reach_any_target(next_row_sum, &targets, remaining_variables) {
+                        continue;
+                    }
+                    accepted_values.push((next_row_sum, energy + added_energy));
+                }
+                if !accepted_values.is_empty() {
+                    let projected_values = next_states.entry(projected_assignment).or_default();
+                    for value in accepted_values {
+                        if projected_values.insert(value) {
+                            next_value_count += 1;
+                            if value_limit > 0 && next_value_count >= value_limit {
+                                limit_reached = true;
+                                break 'assignments;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+        shift31_record_profile_step(
+            &mut profile,
+            step,
+            variable,
+            active_variables.len(),
+            2,
+            &states,
+        );
+        if limit_reached {
+            return profile;
+        }
+    }
+
+    profile.completed = true;
+    profile
+}
+
+fn col10_nonfixed_row_orbit_shift31_compressed_profile(
+    column_generator: u32,
+    targets: &BTreeSet<i32>,
+    signature_limit: usize,
+) -> Shift31CompressedDpProfile {
+    let targets = targets
+        .iter()
+        .copied()
+        .filter(|target| is_valid_row_sum(*target))
+        .collect::<BTreeSet<_>>();
+    let mut profile = Shift31CompressedDpProfile::default();
+    if targets.is_empty() {
+        profile.completed = true;
+        return profile;
+    }
+
+    let (edge_weights, constant_energy) =
+        col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
+    let adjacency = weighted_graph_adjacency(37, &edge_weights);
+    let order = shift31_frontier_order(&adjacency);
+    let mut active_variables = Vec::<usize>::new();
+    let mut initial_signatures = HashMap::new();
+    initial_signatures.insert(0, shift31_single_energy_bits(constant_energy));
+    let mut states = HashMap::<Vec<usize>, HashMap<i32, Shift31EnergyBits>>::from([(
+        Vec::new(),
+        initial_signatures,
+    )]);
+
+    for (step, variable) in order.iter().copied().enumerate() {
+        let future = order[step + 1..].iter().copied().collect::<BTreeSet<_>>();
+        let remaining_variables = (order.len() - step - 1) as i32;
+        let next_active_variables = order[..=step]
+            .iter()
+            .copied()
+            .filter(|processed| graph_has_neighbor_in_future(&adjacency, *processed, &future))
+            .collect::<Vec<_>>();
+        let mut next_states = HashMap::<Vec<usize>, HashMap<i32, Shift31EnergyBits>>::new();
+        let mut next_signature_count = 0usize;
+        let mut limit_reached = false;
+
+        'assignments: for (assignment, signatures) in &states {
+            if signatures.is_empty() {
+                continue;
+            }
+            for state_index in 0..2usize {
+                let sign = binary_domain_sign(state_index);
+                let mut added_energy = 0i32;
+                for (active_position, active_variable) in active_variables.iter().enumerate() {
+                    let key = sorted_pair(*active_variable, variable);
+                    let Some(weight) = edge_weights.get(&key) else {
+                        continue;
+                    };
+                    let active_sign = binary_domain_sign(assignment[active_position]);
+                    added_energy += weight * active_sign * sign;
+                }
+                let projected_assignment = next_active_variables
+                    .iter()
+                    .map(|active_variable| {
+                        if *active_variable == variable {
+                            state_index
+                        } else {
+                            let old_position = active_variables
+                                .iter()
+                                .position(|old_variable| old_variable == active_variable)
+                                .expect("retained variable must have an old assignment");
+                            assignment[old_position]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let projected_signatures = next_states.entry(projected_assignment).or_default();
+                for (row_sum, energy_bits) in signatures {
+                    let next_row_sum = row_sum + sign;
+                    if !row_sum_can_reach_any_target(next_row_sum, &targets, remaining_variables) {
+                        continue;
+                    }
+                    match projected_signatures.entry(next_row_sum) {
+                        std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            shift31_or_shifted_energy_bits(
+                                entry.get_mut(),
+                                energy_bits,
+                                added_energy,
+                            );
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let mut shifted = shift31_empty_energy_bits();
+                            shift31_or_shifted_energy_bits(&mut shifted, energy_bits, added_energy);
+                            entry.insert(shifted);
+                            next_signature_count += 1;
+                            if signature_limit > 0 && next_signature_count >= signature_limit {
+                                limit_reached = true;
+                                break 'assignments;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        active_variables = next_active_variables;
+        states = next_states;
+        shift31_record_compressed_profile_step(
+            &mut profile,
+            step,
+            variable,
+            active_variables.len(),
+            2,
+            &states,
+        );
+        if limit_reached {
+            return profile;
+        }
+    }
+
+    profile.completed = true;
+    profile
 }
 
 fn col10_nonfixed_row_orbit_shift31_edge_weights(
@@ -2845,6 +4100,325 @@ fn weighted_graph_adjacency(
     adjacency
 }
 
+fn graph_has_neighbor_in_future(
+    adjacency: &[BTreeSet<usize>],
+    variable: usize,
+    future: &BTreeSet<usize>,
+) -> bool {
+    adjacency[variable]
+        .iter()
+        .any(|neighbor| future.contains(neighbor))
+}
+
+fn sorted_pair(left: usize, right: usize) -> (usize, usize) {
+    if left < right {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+fn binary_domain_sign(state_index: usize) -> i32 {
+    if state_index == 0 {
+        -1
+    } else {
+        1
+    }
+}
+
+fn row_sum_can_reach_any_target(
+    partial: i32,
+    targets: &BTreeSet<i32>,
+    remaining_variables: i32,
+) -> bool {
+    targets.iter().any(|target| {
+        let delta = target - partial;
+        delta.abs() <= remaining_variables && (delta - remaining_variables) % 2 == 0
+    })
+}
+
+fn shift31_record_profile_step<T: Eq + std::hash::Hash>(
+    profile: &mut Shift31ValueDpProfile,
+    step: usize,
+    variable: usize,
+    active_width: usize,
+    domain_size: usize,
+    states: &HashMap<Vec<usize>, HashSet<T>>,
+) {
+    let assignment_count = states.len();
+    let assignment_capacity = pow_usize_u128(domain_size, active_width);
+    let assignment_fill_ppm = assignment_fill_ppm(assignment_count, assignment_capacity);
+    let value_count = states.values().map(HashSet::len).sum::<usize>();
+    let max_values_per_assignment = states.values().map(HashSet::len).max().unwrap_or(0);
+    profile.processed_steps = step + 1;
+    if assignment_count > profile.peak_assignment_count {
+        profile.peak_assignment_count = assignment_count;
+        profile.peak_assignment_capacity = assignment_capacity;
+        profile.peak_assignment_fill_ppm = assignment_fill_ppm;
+    }
+    profile.peak_value_count = profile.peak_value_count.max(value_count);
+    profile.peak_values_per_assignment = profile
+        .peak_values_per_assignment
+        .max(max_values_per_assignment);
+    profile.last_step = Some(Shift31ValueDpStepProfile {
+        step,
+        variable,
+        active_width,
+        assignment_capacity,
+        assignment_fill_ppm,
+        assignment_count,
+        value_count,
+        max_values_per_assignment,
+    });
+}
+
+fn shift31_record_compressed_profile_step<K: Eq + std::hash::Hash>(
+    profile: &mut Shift31CompressedDpProfile,
+    step: usize,
+    variable: usize,
+    active_width: usize,
+    domain_size: usize,
+    states: &HashMap<Vec<usize>, HashMap<K, Shift31EnergyBits>>,
+) {
+    let assignment_count = states.len();
+    let assignment_capacity = pow_usize_u128(domain_size, active_width);
+    let assignment_fill_ppm = assignment_fill_ppm(assignment_count, assignment_capacity);
+    let signature_count = states.values().map(HashMap::len).sum::<usize>();
+    let energy_bit_count = states
+        .values()
+        .flat_map(HashMap::values)
+        .map(shift31_energy_bit_count)
+        .sum::<usize>();
+    let max_signatures_per_assignment = states.values().map(HashMap::len).max().unwrap_or(0);
+    let max_energy_bits_per_signature = states
+        .values()
+        .flat_map(HashMap::values)
+        .map(shift31_energy_bit_count)
+        .max()
+        .unwrap_or(0);
+    profile.processed_steps = step + 1;
+    if assignment_count > profile.peak_assignment_count {
+        profile.peak_assignment_count = assignment_count;
+        profile.peak_assignment_capacity = assignment_capacity;
+        profile.peak_assignment_fill_ppm = assignment_fill_ppm;
+    }
+    profile.peak_signature_count = profile.peak_signature_count.max(signature_count);
+    profile.peak_energy_bit_count = profile.peak_energy_bit_count.max(energy_bit_count);
+    profile.peak_signatures_per_assignment = profile
+        .peak_signatures_per_assignment
+        .max(max_signatures_per_assignment);
+    profile.peak_energy_bits_per_signature = profile
+        .peak_energy_bits_per_signature
+        .max(max_energy_bits_per_signature);
+    profile.last_step = Some(Shift31CompressedDpStepProfile {
+        step,
+        variable,
+        active_width,
+        assignment_capacity,
+        assignment_fill_ppm,
+        assignment_count,
+        signature_count,
+        energy_bit_count,
+        max_signatures_per_assignment,
+        max_energy_bits_per_signature,
+    });
+}
+
+fn shift31_record_fixed_dense_compressed_profile_step(
+    profile: &mut Shift31CompressedDpProfile,
+    step: usize,
+    variable: usize,
+    active_width: usize,
+    domain_size: usize,
+    states: &[Vec<FixedShift31PackedSignature>],
+) {
+    let assignment_count = states
+        .iter()
+        .filter(|signatures| !signatures.is_empty())
+        .count();
+    let assignment_capacity = pow_usize_u128(domain_size, active_width);
+    let assignment_fill_ppm = assignment_fill_ppm(assignment_count, assignment_capacity);
+    let signature_count = states.iter().map(Vec::len).sum::<usize>();
+    let energy_bit_count = states
+        .iter()
+        .flat_map(|signatures| signatures.iter().map(|signature| &signature.energy_bits))
+        .map(shift31_energy_bit_count)
+        .sum::<usize>();
+    let max_signatures_per_assignment = states.iter().map(Vec::len).max().unwrap_or(0);
+    let max_energy_bits_per_signature = states
+        .iter()
+        .flat_map(|signatures| signatures.iter().map(|signature| &signature.energy_bits))
+        .map(shift31_energy_bit_count)
+        .max()
+        .unwrap_or(0);
+    profile.processed_steps = step + 1;
+    if assignment_count > profile.peak_assignment_count {
+        profile.peak_assignment_count = assignment_count;
+        profile.peak_assignment_capacity = assignment_capacity;
+        profile.peak_assignment_fill_ppm = assignment_fill_ppm;
+    }
+    profile.peak_signature_count = profile.peak_signature_count.max(signature_count);
+    profile.peak_energy_bit_count = profile.peak_energy_bit_count.max(energy_bit_count);
+    profile.peak_signatures_per_assignment = profile
+        .peak_signatures_per_assignment
+        .max(max_signatures_per_assignment);
+    profile.peak_energy_bits_per_signature = profile
+        .peak_energy_bits_per_signature
+        .max(max_energy_bits_per_signature);
+    profile.last_step = Some(Shift31CompressedDpStepProfile {
+        step,
+        variable,
+        active_width,
+        assignment_capacity,
+        assignment_fill_ppm,
+        assignment_count,
+        signature_count,
+        energy_bit_count,
+        max_signatures_per_assignment,
+        max_energy_bits_per_signature,
+    });
+}
+
+fn assignment_fill_ppm(assignment_count: usize, assignment_capacity: u128) -> u128 {
+    if assignment_capacity == 0 {
+        return 0;
+    }
+    (assignment_count as u128 * 1_000_000) / assignment_capacity
+}
+
+fn shift31_empty_energy_bits() -> Shift31EnergyBits {
+    [0u64; SHIFT31_SIDE_ENERGY_WORDS]
+}
+
+fn shift31_single_energy_bits(energy: i32) -> Shift31EnergyBits {
+    let mut bits = shift31_empty_energy_bits();
+    shift31_insert_energy_bit(&mut bits, energy);
+    bits
+}
+
+fn shift31_insert_energy_bit(bits: &mut Shift31EnergyBits, energy: i32) {
+    if let Some(index) = shift31_energy_index(energy) {
+        bits[index / 64] |= 1u64 << (index % 64);
+    }
+}
+
+fn shift31_or_shifted_energy_bits(
+    target: &mut Shift31EnergyBits,
+    source: &Shift31EnergyBits,
+    energy_delta: i32,
+) {
+    for (word_index, word) in source.iter().enumerate() {
+        let mut word = *word;
+        while word != 0 {
+            let bit = word.trailing_zeros() as usize;
+            let source_index = word_index * 64 + bit;
+            if source_index < SHIFT31_SIDE_ENERGY_BITS {
+                let energy = SHIFT31_SIDE_ENERGY_MIN + source_index as i32 + energy_delta;
+                shift31_insert_energy_bit(target, energy);
+            }
+            word &= word - 1;
+        }
+    }
+}
+
+fn shift31_energy_index(energy: i32) -> Option<usize> {
+    let index = energy - SHIFT31_SIDE_ENERGY_MIN;
+    if (0..SHIFT31_SIDE_ENERGY_BITS as i32).contains(&index) {
+        Some(index as usize)
+    } else {
+        None
+    }
+}
+
+fn shift31_energy_bit_count(bits: &Shift31EnergyBits) -> usize {
+    bits.iter().map(|word| word.count_ones() as usize).sum()
+}
+
+fn shift31_assignment_capacity(domain_size: usize, active_width: usize) -> usize {
+    (0..active_width).fold(1usize, |capacity, _| capacity * domain_size)
+}
+
+fn shift31_assignment_digit(
+    mut assignment_code: usize,
+    domain_size: usize,
+    position: usize,
+) -> usize {
+    for _ in 0..position {
+        assignment_code /= domain_size;
+    }
+    assignment_code % domain_size
+}
+
+fn fixed_shift31_project_assignment_code(
+    assignment_code: usize,
+    active_variables: &[usize],
+    next_active_variables: &[usize],
+    variable: usize,
+    state_index: usize,
+) -> usize {
+    let mut projected_code = 0usize;
+    let mut multiplier = 1usize;
+    for active_variable in next_active_variables {
+        let digit = if *active_variable == variable {
+            state_index
+        } else {
+            let old_position = active_variables
+                .iter()
+                .position(|old_variable| old_variable == active_variable)
+                .expect("retained variable must have an old assignment");
+            shift31_assignment_digit(assignment_code, 8, old_position)
+        };
+        projected_code += digit * multiplier;
+        multiplier *= 8;
+    }
+    projected_code
+}
+
+fn fixed_shift31_pack_signature(row_0: i32, row_3: i32, row_6: i32) -> u32 {
+    debug_assert!((-64..64).contains(&row_0));
+    debug_assert!((-64..64).contains(&row_3));
+    debug_assert!((-64..64).contains(&row_6));
+    ((row_0 + 64) as u32) | (((row_3 + 64) as u32) << 8) | (((row_6 + 64) as u32) << 16)
+}
+
+fn fixed_shift31_unpack_signature(key: u32) -> (i32, i32, i32) {
+    (
+        (key & 0xff) as i32 - 64,
+        ((key >> 8) & 0xff) as i32 - 64,
+        ((key >> 16) & 0xff) as i32 - 64,
+    )
+}
+
+fn fixed_shift31_or_insert_shifted_signature(
+    signatures: &mut Vec<FixedShift31PackedSignature>,
+    key: u32,
+    energy_bits: &Shift31EnergyBits,
+    energy_delta: i32,
+) -> bool {
+    match signatures.binary_search_by_key(&key, |signature| signature.key) {
+        Ok(index) => {
+            shift31_or_shifted_energy_bits(
+                &mut signatures[index].energy_bits,
+                energy_bits,
+                energy_delta,
+            );
+            false
+        }
+        Err(index) => {
+            let mut shifted = shift31_empty_energy_bits();
+            shift31_or_shifted_energy_bits(&mut shifted, energy_bits, energy_delta);
+            signatures.insert(
+                index,
+                FixedShift31PackedSignature {
+                    key,
+                    energy_bits: shifted,
+                },
+            );
+            true
+        }
+    }
+}
+
 fn shift_graph_stats(
     variable_count: usize,
     edge_weights: &HashMap<(usize, usize), i32>,
@@ -2853,6 +4427,7 @@ fn shift_graph_stats(
 ) -> ShiftGraphStats {
     let adjacency = weighted_graph_adjacency(variable_count, edge_weights);
     let min_fill = min_fill_profile(&adjacency);
+    let frontier = frontier_order_profile(&adjacency, &min_fill.order);
     ShiftGraphStats {
         domain_size,
         variable_count,
@@ -2865,7 +4440,156 @@ fn shift_graph_stats(
         max_bag_domain_states: pow_usize_u128(domain_size, min_fill.width + 1),
         min_fill_bag_size_distribution: min_fill.bag_size_distribution,
         min_fill_order: min_fill.order,
+        frontier_width: frontier.width,
+        frontier_max_domain_states: pow_usize_u128(domain_size, frontier.width),
+        frontier_order: frontier.order,
     }
+}
+
+fn shift31_frontier_order(adjacency: &[BTreeSet<usize>]) -> Vec<usize> {
+    let min_fill = min_fill_profile(adjacency);
+    frontier_order_profile(adjacency, &min_fill.order).order
+}
+
+fn frontier_order_profile(
+    adjacency: &[BTreeSet<usize>],
+    fallback_order: &[usize],
+) -> FrontierProfile {
+    let fallback = frontier_profile_for_order(adjacency, fallback_order);
+    let greedy = greedy_frontier_profile(adjacency);
+    let heuristic = better_frontier_profile(fallback, greedy);
+    if adjacency.len() <= 20 {
+        better_frontier_profile(exact_frontier_profile(adjacency), heuristic)
+    } else {
+        heuristic
+    }
+}
+
+fn better_frontier_profile(left: FrontierProfile, right: FrontierProfile) -> FrontierProfile {
+    if (right.width, right.width_sum, &right.order) < (left.width, left.width_sum, &left.order) {
+        right
+    } else {
+        left
+    }
+}
+
+fn exact_frontier_profile(adjacency: &[BTreeSet<usize>]) -> FrontierProfile {
+    let n = adjacency.len();
+    debug_assert!(n <= 20);
+    let state_count = 1usize << n;
+    let frontier_widths = (0..state_count)
+        .map(|mask| frontier_width_for_mask(adjacency, mask as u128))
+        .collect::<Vec<_>>();
+    let mut best_width = vec![usize::MAX; state_count];
+    let mut best_sum = vec![u128::MAX; state_count];
+    let mut predecessor = vec![None::<(usize, usize)>; state_count];
+    best_width[0] = 0;
+    best_sum[0] = 0;
+
+    for mask in 0..state_count {
+        if best_width[mask] == usize::MAX {
+            continue;
+        }
+        for variable in 0..n {
+            let bit = 1usize << variable;
+            if mask & bit != 0 {
+                continue;
+            }
+            let next_mask = mask | bit;
+            let next_frontier_width = frontier_widths[next_mask];
+            let candidate_width = best_width[mask].max(next_frontier_width);
+            let candidate_sum = best_sum[mask] + next_frontier_width as u128;
+            if candidate_width < best_width[next_mask]
+                || (candidate_width == best_width[next_mask] && candidate_sum < best_sum[next_mask])
+            {
+                best_width[next_mask] = candidate_width;
+                best_sum[next_mask] = candidate_sum;
+                predecessor[next_mask] = Some((mask, variable));
+            }
+        }
+    }
+
+    let mut order = Vec::with_capacity(n);
+    let mut mask = state_count - 1;
+    while mask != 0 {
+        let (previous_mask, variable) =
+            predecessor[mask].expect("reachable frontier state must have predecessor");
+        order.push(variable);
+        mask = previous_mask;
+    }
+    order.reverse();
+
+    FrontierProfile {
+        width: best_width[state_count - 1],
+        width_sum: best_sum[state_count - 1],
+        order,
+    }
+}
+
+fn greedy_frontier_profile(adjacency: &[BTreeSet<usize>]) -> FrontierProfile {
+    let n = adjacency.len();
+    let mut remaining = (0..n).collect::<BTreeSet<_>>();
+    let mut mask = 0u128;
+    let mut width = 0usize;
+    let mut width_sum = 0u128;
+    let mut order = Vec::with_capacity(n);
+
+    while !remaining.is_empty() {
+        let variable = remaining
+            .iter()
+            .copied()
+            .min_by_key(|candidate| {
+                let next_mask = mask | (1u128 << candidate);
+                let next_width = frontier_width_for_mask(adjacency, next_mask);
+                let remaining_degree = adjacency[*candidate]
+                    .iter()
+                    .filter(|neighbor| remaining.contains(neighbor))
+                    .count();
+                (next_width, remaining_degree, *candidate)
+            })
+            .expect("remaining variable set must be nonempty");
+        mask |= 1u128 << variable;
+        remaining.remove(&variable);
+        let next_width = frontier_width_for_mask(adjacency, mask);
+        width = width.max(next_width);
+        width_sum += next_width as u128;
+        order.push(variable);
+    }
+
+    FrontierProfile {
+        width,
+        width_sum,
+        order,
+    }
+}
+
+fn frontier_profile_for_order(adjacency: &[BTreeSet<usize>], order: &[usize]) -> FrontierProfile {
+    let mut mask = 0u128;
+    let mut width = 0usize;
+    let mut width_sum = 0u128;
+    for variable in order {
+        mask |= 1u128 << variable;
+        let next_width = frontier_width_for_mask(adjacency, mask);
+        width = width.max(next_width);
+        width_sum += next_width as u128;
+    }
+    FrontierProfile {
+        width,
+        width_sum,
+        order: order.to_vec(),
+    }
+}
+
+fn frontier_width_for_mask(adjacency: &[BTreeSet<usize>], mask: u128) -> usize {
+    (0..adjacency.len())
+        .filter(|variable| {
+            let variable_bit = 1u128 << variable;
+            mask & variable_bit != 0
+                && adjacency[*variable]
+                    .iter()
+                    .any(|neighbor| mask & (1u128 << neighbor) == 0)
+        })
+        .count()
 }
 
 fn min_fill_profile(adjacency: &[BTreeSet<usize>]) -> MinFillProfile {
@@ -3515,6 +5239,16 @@ fn sumset_has_target(left: &BTreeSet<i32>, right: &BTreeSet<i32>, target: i32) -
     } else {
         right.iter().any(|value| left.contains(&(target - value)))
     }
+}
+
+fn sumset_values(left: &BTreeSet<i32>, right: &BTreeSet<i32>) -> BTreeSet<i32> {
+    let mut values = BTreeSet::new();
+    for left_value in left {
+        for right_value in right {
+            values.insert(left_value + right_value);
+        }
+    }
+    values
 }
 
 fn tuple_sumset_has_target(
@@ -7121,7 +8855,7 @@ fn usage(message: &str) -> String {
     };
     let usage_label = colorize_label("usage:", LABEL_COLOR);
     format!(
-        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--col10-coupled] [--invariant-shift31] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
+        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--col10-coupled] [--invariant-shift31] [--invariant-shift31-profile] [--invariant-shift31-compressed-profile] [--invariant-shift31-profile-limit N] [--invariant-shift31-exact] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
     )
 }
 
@@ -7231,9 +8965,10 @@ mod tests {
         row_units_147_col10_coupled_shift_analysis, row_units_147_full_row_lift_analysis,
         row_units_147_invariant_row_lift_analysis, row_units_147_invariant_shift31_graph_analysis,
         row_units_147_shift0_dot_marginal_feasible, top_cyclic_hypothesis_crt_component_summaries,
-        units_mod, RowUnits147Marginal, LP333_ACTUAL_SHIFT_TARGET, LP333_ROW_SHIFT_TARGET,
+        units_mod, RowUnits147Marginal, Shift31CompressedDpProfile, LP333_ACTUAL_SHIFT_TARGET,
+        LP333_ROW_SHIFT_TARGET, SHIFT31_VALUE_PROFILE_LIMIT,
     };
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     #[test]
     fn lp_search_config_parser_reads_key_value_file() {
@@ -7528,11 +9263,21 @@ mod tests {
                 && lift.exact_pattern_log10.is_none()
         }));
 
+        let mut fixed_shift31_compressed_profile_cache =
+            HashMap::<(Vec<(i32, i32, i32)>, usize), Shift31CompressedDpProfile>::new();
         let shift31_profiles = mixed_crt_targets
             .iter()
             .filter(|hypothesis| hypothesis.order == 3 && hypothesis.column_units.as_slice() != [1])
             .map(|hypothesis| {
-                row_units_147_invariant_shift31_graph_analysis(&pairs, &hypothesis.subgroup)
+                row_units_147_invariant_shift31_graph_analysis(
+                    &pairs,
+                    &hypothesis.subgroup,
+                    false,
+                    false,
+                    false,
+                    SHIFT31_VALUE_PROFILE_LIMIT,
+                    &mut fixed_shift31_compressed_profile_cache,
+                )
             })
             .collect::<Vec<_>>();
         assert_eq!(shift31_profiles.len(), 2);
@@ -7548,6 +9293,9 @@ mod tests {
                     == BTreeMap::from([(1, 1), (2, 1), (3, 2), (4, 3), (5, 5), (6, 1)])
                 && profile.fixed_graph.max_bag_domain_states == 262_144
                 && profile.fixed_graph.min_fill_order.len() == 13
+                && profile.value_profile.is_none()
+                && profile.compressed_profile.is_none()
+                && profile.exact_shift31.is_none()
         }));
         for profile in &shift31_profiles {
             assert_eq!(profile.nonfixed_graph.domain_size, 2);
@@ -7600,6 +9348,37 @@ mod tests {
                 other => panic!("unexpected column generator {other}"),
             }
         }
+    }
+
+    #[test]
+    #[ignore = "exact invariant shift-(3,1) bag DP is opt-in and still being profiled"]
+    fn multiplier_row_units_147_invariant_shift31_exact_smoke() {
+        let pairs = row_mod3_bundle_pair_masses();
+        let hypotheses = cyclic_multiplier_hypotheses(&units_mod(333), 333, &pairs);
+        let hypothesis = hypotheses
+            .iter()
+            .find(|hypothesis| {
+                hypothesis.order == 3 && hypothesis.column_units.as_slice() == [1, 10, 26]
+            })
+            .expect("order-3 mixed CRT target must exist");
+        let mut fixed_shift31_compressed_profile_cache =
+            HashMap::<(Vec<(i32, i32, i32)>, usize), Shift31CompressedDpProfile>::new();
+        let profile = row_units_147_invariant_shift31_graph_analysis(
+            &pairs,
+            &hypothesis.subgroup,
+            true,
+            false,
+            false,
+            SHIFT31_VALUE_PROFILE_LIMIT,
+            &mut fixed_shift31_compressed_profile_cache,
+        );
+        let exact = profile
+            .exact_shift31
+            .expect("exact shift31 profile must be present when requested");
+        assert_eq!(exact.fixed_target_count, 42);
+        assert_eq!(exact.nonfixed_target_count, 6);
+        assert!(exact.fixed_targets_with_values <= exact.fixed_target_count);
+        assert!(exact.nonfixed_targets_with_values <= exact.nonfixed_target_count);
     }
 
     #[test]
