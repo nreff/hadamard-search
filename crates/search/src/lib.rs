@@ -343,9 +343,11 @@ struct PartialCompressedPairState {
 struct CompressedGenerationContext {
     order: usize,
     alphabet: Vec<i16>,
+    row_sum_target: i32,
     reachable_sums: Vec<BTreeSet<i32>>,
     max_partner_squared_norm: i32,
     max_abs_symbol: f64,
+    max_symbol_squared: i32,
     selected_frequencies: Vec<usize>,
     twiddles: Vec<Vec<(f64, f64)>>,
 }
@@ -471,17 +473,54 @@ pub fn run_legendre_search(
         return Err("exact exhaustive search above length 20 requires --max-attempts".to_string());
     }
 
-    let mut state = checkpoint.unwrap_or_else(|| {
+    let mut state = if let Some(state) = checkpoint {
+        if state.mode != "lp" {
+            return Err(format!(
+                "checkpoint mode mismatch: expected lp, found {}",
+                state.mode
+            ));
+        }
+        if state.length != config.length {
+            return Err(format!(
+                "checkpoint length mismatch: expected {}, found {}",
+                config.length, state.length
+            ));
+        }
+        if state.compression != config.compression {
+            return Err(format!(
+                "checkpoint compression mismatch: expected {}, found {}",
+                config.compression, state.compression
+            ));
+        }
+        if state.shard_index != config.shard_index || state.shard_count != config.shard_count {
+            return Err(format!(
+                "checkpoint shard mismatch: expected {}/{}, found {}/{}",
+                config.shard_index, config.shard_count, state.shard_index, state.shard_count
+            ));
+        }
+        if state.row_sum_target != config.row_sum_target {
+            return Err(format!(
+                "checkpoint row-sum mismatch: expected {}, found {}",
+                config.row_sum_target, state.row_sum_target
+            ));
+        }
+        state
+    } else {
         CheckpointState::new(
             "lp",
             config.length,
             config.compression,
             config.shard_index,
             config.shard_count,
+            config.row_sum_target,
         )
-    });
+    };
     let mut metrics = SearchMetrics {
-        attempted_pairs: state.next_attempt,
+        attempted_pairs: shard_attempts_before_cursor(
+            state.next_attempt,
+            config.shard_index,
+            config.shard_count,
+        ),
         accepted_pairs: state.matches_found,
         candidate_pool_a: 0,
         candidate_pool_b: 0,
@@ -577,6 +616,12 @@ pub fn run_legendre_search(
     })
 }
 
+fn shard_attempts_before_cursor(next_attempt: u64, shard_index: usize, shard_count: usize) -> u64 {
+    let shard_index = shard_index as u64;
+    let shard_count = shard_count as u64;
+    next_attempt / shard_count + u64::from(shard_index < next_attempt % shard_count)
+}
+
 fn run_exact_search(
     config: &SearchConfig,
     state: &mut CheckpointState,
@@ -592,13 +637,16 @@ fn run_exact_search(
         .ok_or_else(|| "sequence space too large for exact enumeration".to_string())?;
     let total_pairs = sequence_count.saturating_mul(sequence_count);
     let mut matches = Vec::new();
+    let mut local_seen = 0_u64;
     let mut attempt_index = state.next_attempt;
 
-    while attempt_index < total_pairs && (attempt_index - state.next_attempt) < config.max_attempts
-    {
+    while attempt_index < total_pairs {
         if attempt_index % config.shard_count as u64 != config.shard_index as u64 {
             attempt_index += 1;
             continue;
+        }
+        if local_seen >= config.max_attempts {
+            break;
         }
 
         let a_bits = attempt_index / sequence_count;
@@ -614,6 +662,7 @@ fn run_exact_search(
                 matches.push(SearchMatch::Exact(ExactMatch { a, b }));
             }
         }
+        local_seen += 1;
         attempt_index += 1;
     }
 
@@ -680,7 +729,8 @@ fn run_compressed_search(
 
     let mut matches = Vec::new();
     let mut local_seen = 0_u64;
-    let mut attempt_index = state.next_attempt;
+    let resume_at = state.next_attempt;
+    let mut attempt_index = 0_u64;
     let second_index = build_signature_index(&second);
     let first_index = build_signature_index(&first);
     let mut seen_compressed_pairs = BTreeSet::new();
@@ -694,6 +744,10 @@ fn run_compressed_search(
                 format!("{b_line}|{a_line}")
             };
             if !seen_compressed_pairs.insert(compressed_pair_key) {
+                continue;
+            }
+            if attempt_index < resume_at {
+                attempt_index += 1;
                 continue;
             }
             if attempt_index % config.shard_count as u64 != config.shard_index as u64 {
@@ -1332,8 +1386,9 @@ fn build_compressed_generation_context(
             .ok_or_else(|| "row sum target is not achievable for compressed search".to_string())?;
     let max_abs_symbol = alphabet
         .iter()
-        .map(|value| f64::from(i16::unsigned_abs(*value)))
-        .fold(0.0_f64, f64::max);
+        .map(|value| i32::from(*value).abs())
+        .max()
+        .unwrap_or(0);
     let selected_frequencies = choose_generation_frequencies(order);
     let twiddles = selected_frequencies
         .iter()
@@ -1351,9 +1406,11 @@ fn build_compressed_generation_context(
     Ok(CompressedGenerationContext {
         order,
         alphabet: alphabet.to_vec(),
+        row_sum_target,
         reachable_sums,
         max_partner_squared_norm,
-        max_abs_symbol,
+        max_abs_symbol: f64::from(max_abs_symbol),
+        max_symbol_squared: max_abs_symbol * max_abs_symbol,
         selected_frequencies,
         twiddles,
     })
@@ -1379,7 +1436,12 @@ fn generate_compressed_sequences(
     out: &mut Vec<CompressedSequence>,
 ) {
     let remaining = context.order - index;
-    if exact_row_sum_is_impossible(remaining, partial_sum, 1, &context.reachable_sums) {
+    if exact_row_sum_is_impossible(
+        remaining,
+        partial_sum,
+        context.row_sum_target,
+        &context.reachable_sums,
+    ) {
         stats.row_sum_pruned += 1;
         return;
     }
@@ -1462,7 +1524,8 @@ fn spectral_bound_is_impossible(
     partial_squared_norm: i32,
     spectral_accumulators: &[ComplexAccumulator],
 ) -> bool {
-    let max_final_squared_norm = partial_squared_norm + remaining as i32 * 9;
+    let max_final_squared_norm =
+        partial_squared_norm + remaining as i32 * context.max_symbol_squared;
     let max_allowed_psd = f64::from(
         max_final_squared_norm
             + context.max_partner_squared_norm
@@ -3385,11 +3448,14 @@ fn complement_sds_profile(profile: &[usize], lambda: usize) -> Option<Vec<usize>
 #[cfg(test)]
 mod tests {
     use super::{
-        decompress_bucket_artifact, direct_compressed_pair_probe, mitm_compressed_pair_probe,
-        parse_bucket_artifact_text, run_legendre_search, run_sds_search, DecompressionConfig,
-        DirectProbeOrdering, MitmSplitStrategy, SdsSearchConfig, SearchConfig, SearchMatch,
+        build_compressed_generation_context, decompress_bucket_artifact,
+        direct_compressed_pair_probe, mitm_compressed_pair_probe, parse_bucket_artifact_text,
+        run_legendre_search, run_sds_search, DecompressionConfig, DirectProbeOrdering,
+        MitmSplitStrategy, SdsSearchConfig, SearchConfig, SearchMatch,
     };
-    use hadamard_core::{CheckpointState, LegendrePair, CURRENT_ARTIFACT_VERSION};
+    use hadamard_core::{
+        CheckpointState, CompressedSequence, LegendrePair, CURRENT_ARTIFACT_VERSION,
+    };
 
     #[test]
     fn exact_search_recovers_known_length_five_pair() {
@@ -3460,30 +3526,178 @@ mod tests {
     }
 
     #[test]
-    fn compressed_search_checkpoint_roundtrip_works() {
-        let checkpoint = CheckpointState {
-            version: 1,
-            mode: "lp".into(),
+    fn sharded_exact_resume_reports_local_attempt_count() {
+        let one_attempt = SearchConfig {
+            length: 5,
+            compression: 1,
+            shard_index: 1,
+            shard_count: 2,
+            max_attempts: 1,
+            row_sum_target: 1,
+        };
+        let first = run_legendre_search(&one_attempt, None).expect("first sharded search");
+        let resumed = run_legendre_search(&one_attempt, Some(first.checkpoint.clone()))
+            .expect("resumed sharded search");
+        let uninterrupted = run_legendre_search(
+            &SearchConfig {
+                max_attempts: 2,
+                ..one_attempt
+            },
+            None,
+        )
+        .expect("uninterrupted sharded search");
+
+        assert_eq!(first.metrics.attempted_pairs, 1);
+        assert_eq!(resumed.metrics.attempted_pairs, 2);
+        assert_eq!(uninterrupted.metrics.attempted_pairs, 2);
+        assert_eq!(first.checkpoint.next_attempt, 3);
+        assert_eq!(resumed.checkpoint.next_attempt, 5);
+        assert_eq!(
+            resumed.checkpoint.next_attempt,
+            uninterrupted.checkpoint.next_attempt
+        );
+        assert_eq!(
+            first
+                .matches
+                .iter()
+                .chain(&resumed.matches)
+                .collect::<Vec<_>>(),
+            uninterrupted.matches.iter().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn compressed_search_checkpoint_resume_skips_processed_pairs() {
+        let one_attempt = SearchConfig {
             length: 9,
             compression: 3,
             shard_index: 0,
             shard_count: 1,
-            next_attempt: 0,
-            matches_found: 0,
+            max_attempts: 1,
+            row_sum_target: 1,
         };
+        let first = run_legendre_search(&one_attempt, None).expect("first search");
+        let resumed = run_legendre_search(&one_attempt, Some(first.checkpoint.clone()))
+            .expect("resumed search");
+
+        let uninterrupted = run_legendre_search(
+            &SearchConfig {
+                max_attempts: 2,
+                ..one_attempt
+            },
+            None,
+        )
+        .expect("uninterrupted search");
+
+        assert_eq!(first.matches.len(), 1);
+        assert_eq!(resumed.matches.len(), 1);
+        assert_eq!(uninterrupted.matches.len(), 2);
+        assert_eq!(first.matches[0], uninterrupted.matches[0]);
+        assert_eq!(resumed.matches[0], uninterrupted.matches[1]);
+        assert_ne!(first.matches[0], resumed.matches[0]);
+        assert_eq!(first.checkpoint.next_attempt, 1);
+        assert_eq!(resumed.checkpoint.next_attempt, 2);
+    }
+
+    #[test]
+    fn sharded_compressed_resume_reports_local_attempt_count() {
+        let one_attempt = SearchConfig {
+            length: 9,
+            compression: 3,
+            shard_index: 1,
+            shard_count: 2,
+            max_attempts: 1,
+            row_sum_target: 1,
+        };
+        let first = run_legendre_search(&one_attempt, None).expect("first sharded search");
+        let resumed = run_legendre_search(&one_attempt, Some(first.checkpoint.clone()))
+            .expect("resumed sharded search");
+        let uninterrupted = run_legendre_search(
+            &SearchConfig {
+                max_attempts: 2,
+                ..one_attempt
+            },
+            None,
+        )
+        .expect("uninterrupted sharded search");
+
+        assert_eq!(first.metrics.attempted_pairs, 1);
+        assert_eq!(resumed.metrics.attempted_pairs, 2);
+        assert_eq!(uninterrupted.metrics.attempted_pairs, 2);
+        assert_eq!(first.checkpoint.next_attempt, 3);
+        assert_eq!(resumed.checkpoint.next_attempt, 5);
+        assert_eq!(
+            resumed.checkpoint.next_attempt,
+            uninterrupted.checkpoint.next_attempt
+        );
+    }
+
+    #[test]
+    fn lp_search_rejects_mismatched_checkpoint_metadata() {
+        let config = SearchConfig {
+            length: 9,
+            compression: 3,
+            shard_index: 0,
+            shard_count: 2,
+            max_attempts: 1,
+            row_sum_target: 1,
+        };
+        let checkpoint = CheckpointState::new("lp", 9, 3, 0, 2, 1);
+
+        let mut wrong_length = checkpoint.clone();
+        wrong_length.length = 15;
+        let error = run_legendre_search(&config, Some(wrong_length))
+            .expect_err("length mismatch must fail");
+        assert!(error.contains("checkpoint length mismatch"));
+
+        let mut wrong_compression = checkpoint.clone();
+        wrong_compression.compression = 9;
+        let error = run_legendre_search(&config, Some(wrong_compression))
+            .expect_err("compression mismatch must fail");
+        assert!(error.contains("checkpoint compression mismatch"));
+
+        let mut wrong_shard = checkpoint;
+        wrong_shard.shard_index = 1;
+        let error =
+            run_legendre_search(&config, Some(wrong_shard)).expect_err("shard mismatch must fail");
+        assert!(error.contains("checkpoint shard mismatch"));
+
+        let wrong_row_sum = CheckpointState::new("lp", 9, 3, 0, 2, 3);
+        let error = run_legendre_search(&config, Some(wrong_row_sum))
+            .expect_err("row-sum mismatch must fail");
+        assert!(error.contains("checkpoint row-sum mismatch"));
+    }
+
+    #[test]
+    fn compressed_generation_honors_row_sum_and_factor_bound() {
+        let alphabet = CompressedSequence::alphabet_for_factor(9);
+        let context =
+            build_compressed_generation_context(1, &alphabet, 3).expect("generation context");
+        assert_eq!(context.row_sum_target, 3);
+        assert_eq!(context.max_symbol_squared, 81);
+
         let outcome = run_legendre_search(
             &SearchConfig {
                 length: 9,
-                compression: 3,
+                compression: 9,
                 shard_index: 0,
                 shard_count: 1,
-                max_attempts: 8,
-                row_sum_target: 1,
+                max_attempts: 1,
+                row_sum_target: 3,
             },
-            Some(checkpoint),
+            None,
         )
         .expect("search");
-        assert!(outcome.checkpoint.next_attempt > 0);
+
+        assert_eq!(outcome.metrics.candidate_pool_a, 1);
+        assert_eq!(outcome.matches.len(), 1);
+        let SearchMatch::Compressed(found) = &outcome.matches[0] else {
+            panic!("expected compressed match");
+        };
+        assert_eq!(found.a.values(), [3]);
+        assert_eq!(found.b.values(), [3]);
+        assert_eq!(found.a.row_sum(), 3);
+        assert_eq!(found.b.row_sum(), 3);
     }
 
     #[test]

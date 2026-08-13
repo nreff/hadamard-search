@@ -2,7 +2,17 @@
 
 # hadamard
 
-Research-grade tooling for computational search toward new Hadamard matrices, starting with the open order **668**.
+Research-grade tooling for computational Hadamard-matrix research, originally
+centered on the then-open order **668**.
+
+Order `668` is now a solved target: this repository contains an independently
+verified `668 x 668` `+/-1` fixture at
+[`fixtures/known/hm-668/matrix.txt`](fixtures/known/hm-668/matrix.txt). The active
+focus now combines preserving that result with attacking the next public,
+verifiable gap. After the same payload filled all twelve previously missing orders
+below `2000`, the least remaining order is `2060 = 4*515`; see [the frontier and
+attack note](docs/research/hm-2060-frontier.md). The general Hadamard conjecture is
+not resolved by the new finite collection.
 
 If you are new to the repo, read these first:
 
@@ -15,10 +25,12 @@ If you are new to the repo, read these first:
 
 The repo is built around a practical research stance:
 
-- target structured constructions first, especially **Legendre pairs of length 333** followed by the **two-circulant-core (2cc)** construction
-- keep **cyclic SDS over `Z_167`** available as a secondary track
-- make room for **novel algorithms** without rewriting the whole codebase
-- require every serious search pipeline to reproduce **known smaller cases** before trusting any result at 668
+- preserve the exact order-`668` artifact and its primary-source reconstruction
+- analyze the identified construction and investigate the discovery provenance of
+  its cyclic seed
+- retain the **Legendre-pair / 2cc** and **cyclic SDS / Goethals-Seidel** search
+  programs as reproducible historical method work and possible tools for other orders
+- require every serious computational claim to have independent exact checks
 
 ## Why 668
 
@@ -26,9 +38,41 @@ Order `668 = 2 * 333 + 2` is a natural 2cc target: a Legendre pair of length `33
 
 The included research report also identifies a second route through Goethals-Seidel / SDS constructions over `Z_167`, and lists the feasible row-sum parameter sets forced by the square-sum constraint.
 
+On `2026-08-12`, the public order-`668` result was reconstructed from Levent
+Alpöge's primary X
+[`+/-` payload](https://x.com/__alpoge__/status/2087504785952182273) and
+[`decoder/generator`](https://x.com/__alpoge__/status/2087504788938510427). Two
+independent exact verifiers confirmed that the resulting file has `668` rows and
+`668` columns, contains only `+1` and `-1`, and has zero dot product for all
+`222,778` unordered pairs of distinct rows. Its SHA-256 is
+`bdeb5059d77e2703211082627b60441b8c888c928a55cc6f295e011941a387b0`.
+See the fixture's [provenance and verification
+record](fixtures/known/hm-668/README.md).
+
+[Epoch AI's order-668 status page](https://epoch.ai/frontiermath/open-problems/hadamard)
+reports the target as solved. Because that report and its public attribution are a
+same-day result, the public historical account may still be revised; that
+provisional status is separate from the exact verification of the repository
+artifact.
+
+The construction itself is now identified exactly. The first `664` signs of the
+extracted primary sign stream are four length-`166` sequences whose negative
+supports form a cyclic type-`H_4^*`
+difference family `(166;82,83,83,83;164)`; equivalently, their positive supports
+form `(166;84,83,83,83;166)`. The standard Wallis–Whiteman bordered array
+then gives the stored order-`668` matrix byte for byte. See [the construction
+note](docs/research/hm-668-construction.md). What remains open is how this particular
+`Z_166` seed was discovered or searched for, not why the resulting bordered array
+is Hadamard. The general Hadamard conjecture also remains open.
+
 Primary background material lives in:
 
 - [`docs/research/deep-research-report.md`](docs/research/deep-research-report.md)
+- [`docs/research/hm-668-construction.md`](docs/research/hm-668-construction.md) for
+  the exact cyclic difference family, bordered array, and orthogonality proof
+- [`docs/research/hm-2060-frontier.md`](docs/research/hm-2060-frontier.md) for the
+  post-`2000` frontier derivation and selected multiplier-orbit GS attack
+- [`docs/research/modular-golay-167.md`](docs/research/modular-golay-167.md) for the exact lift of the published 64-modular order-668 near-construction
 
 ## Current status
 
@@ -45,10 +89,22 @@ This first implementation is a **working research scaffold**:
 - an experimental joint compressed-pair probe with exact norm feasibility and partial autocorrelation pruning
 - corrected decompression prefix pruning that now recovers exact matches from the length-`15` benchmark artifact
 - SDS block and difference-profile primitives plus a small meet-in-the-middle search scaffold
+- a Goethals-Seidel constructor, checked end to end on a small cyclic SDS
+- an exact fixed-`q` pseudo-Boolean reduction of the published length-`167`
+  64-modular Golay quadruple, with a `42`-case modulo-`4` partition and
+  exact lag-parity sieve leaving `22` cases and solver-neutral restricted-OPB
+  export reduced to `14` reversal representatives, plus a separately labeled
+  `1,642`-variable `T`-fixed construction subfamily
 - reproducible LP search config-file support for benchmark and campaign setup
 - five known-case fixtures proving the end-to-end `LP -> 2cc -> Hadamard` path
+- an independently verified order-`668` fixture with exact source provenance,
+  artifact digest, and two independent all-row-pairs checks
+- a native `build_spence_hadamard` path from the compact `4 x 166` seed, with exact
+  `H_4^*`/PAF validation and byte-identical reconstruction of the stored fixture
 
-It is not yet a production-strength `LP(333)` solver. The design is ready for stronger pruning and Phase 2 SAT/CAS decompression.
+It is not a production-strength `LP(333)` solver. That search work remains useful as
+a documented computational-methods program, but it is no longer the primary path to
+establishing existence at order `668`.
 
 For the clearest current snapshot with checkboxes and next steps, see:
 
@@ -61,7 +117,7 @@ For the clearest current snapshot with checkboxes and next steps, see:
 
 - `crates/core`: exact math, sequences, matrices, checkpoint and artifact formats
 - `crates/search`: search runners, sharding, compressed candidate enumeration
-- `crates/construct`: 2cc builder and validation
+- `crates/construct`: 2cc, Goethals–Seidel, and Wallis–Whiteman builders
 - `crates/cli`: `hadamard` command-line interface
 - `docs/`: roadmap, algorithm notes, runbook
 - `docs/research/`: imported reports and source research material
@@ -123,6 +179,34 @@ Validate an exported matrix through the `uv`-managed Python helper:
 uv run python py/validate_matrix.py outputs/examples/hm12.txt
 ```
 
+Re-check the verified order-`668` fixture:
+
+```bash
+uv run python py/validate_matrix.py fixtures/known/hm-668/matrix.txt
+```
+
+Audit and export the current exact order-`2060` multiplier shard:
+
+```bash
+uv run python py/search_sds_515.py
+uv run python py/search_sds_515_reduced.py \
+  --export-opb /tmp/sds515-h17-reduced.opb
+uv run python py/test_search_sds_515_reduced.py
+```
+
+Reconstruct it from the compact cyclic seed through the native bordered-array
+builder:
+
+```bash
+cargo run -p hadamard-cli -- build spence \
+  --sequences-in fixtures/known/hm-668/spence-sequences.txt \
+  --output /tmp/hm668-spence.txt
+cmp /tmp/hm668-spence.txt fixtures/known/hm-668/matrix.txt
+uv run python py/reconstruct_hm668.py \
+  fixtures/known/hm-668/spence-sequences.txt /tmp/hm668-python.txt
+cmp /tmp/hm668-python.txt fixtures/known/hm-668/matrix.txt
+```
+
 Enumerate the SDS-167 parameter targets:
 
 ```bash
@@ -158,7 +242,12 @@ cargo run -p hadamard-cli -- benchmark compressed-pairs-mitm --length 15 --compr
 
 That joint-space probe is not yet the production LP search path, but it already recovers the known length-`15`, factor-`3` compressed projection and, with the current selected-frequency pair-PSD bound plus packed exact-tail lookup at depth `6`, reaches a first length-`33`, factor-`3` compressed pair after `1360` joint branches. A first MITM benchmark path is also in-tree for comparison and now emits rough state-memory estimates before longer runs; see [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) for the measured tradeoffs.
 
-The current best verified direct-joint benchmark goes further: with factorized exact-tail completion at depth `11`, the reduced length-`11` (`length 33`, factor `3`) probe now eliminates branching entirely, checks `996305` exact tails, prunes `996304` of them spectrally, emits `1` pair, and completed in `11.80` seconds during the `2026-03-13` audit. See [`docs/RESEARCH_STATUS.md`](docs/RESEARCH_STATUS.md) for the full context and claim boundaries.
+The current seam-aware reduced-length-`11` (`length 33`, factor `3`) benchmark
+eliminates branching, checks `8399` exact tails, emits `1` pair, and completed in
+`9.77` seconds in the recorded configuration. The packed reduced-length-`15`
+anchor checks `129335` tails after `48` branches and has a best recorded time of
+`12.60` seconds. See [`docs/RESEARCH_STATUS.md`](docs/RESEARCH_STATUS.md) for the
+full progression and claim boundaries.
 
 Run the staged compressed search demo:
 
@@ -193,11 +282,13 @@ At length `15`, the compressed stage is already useful: the branch-and-bound gen
 
 ## Research workflow
 
-1. Prove the pipeline on smaller known cases.
-2. Harden artifact/checkpoint formats and shard execution.
-3. Improve spectral filtering and compression search.
-4. Add Phase 2 decompression and stronger LP(333) pruning.
-5. Expand the experimental API for novel methods and the SDS track.
+1. Preserve the primary-source material, decoded reconstruction, and exact digests.
+2. Reproduce the order-`668` artifact through independent implementations.
+3. Preserve the exact `H_4^*`/Wallis–Whiteman structural explanation and proof.
+4. Determine how the particular cyclic `Z_166` seed was discovered and compute
+   invariants that support classification and equivalence comparisons.
+5. Preserve and selectively extend the historical LP, SDS, and fixed-`q` search
+   program as computational-methods research.
 
 ## Test-first rule
 
@@ -210,7 +301,8 @@ In practice that means:
 - new math or pruning logic gets unit tests first
 - each stage must preserve known-valid smaller cases
 - every serious path must still pass end-to-end construction and final Hadamard verification
-- no 668-scale result is trusted unless the smaller-case ladder is green
+- no large matrix artifact is trusted without an exact digest and an independent
+  all-pairs orthogonality check
 
 ## Known small case
 
@@ -229,14 +321,28 @@ It also has a known compressed-valid projection at length `9` with factor `3`:
 
 They satisfy the Legendre-pair autocorrelation conditions and build Hadamard matrices of orders `12`, `16`, `20`, `24`, and `28` through the implemented 2cc construction. These fixtures are the current correctness ladder for the code.
 
+Separately, the repository ships the verified target fixture at
+[`fixtures/known/hm-668/matrix.txt`](fixtures/known/hm-668/matrix.txt). It is an
+externally sourced order-`668` result, not an output of the LP correctness ladder;
+its own [provenance record](fixtures/known/hm-668/README.md) documents the primary
+sources, exact digest, and independent verification.
+
 ## Roadmap
 
 Short-term goals:
 
-- add stronger compressed LP filters
-- introduce a decompressor interface for SAT/CAS and meet-in-the-middle approaches
-- add more known structured cases to the fixtures
-- scale the SDS route past the current toy matcher toward `Z_167`
+- launch the exact order-`17` multiplier-invariant cyclic GS shard at core order
+  `515`, with proof-producing UNSAT or independently verified SAT as the only
+  terminal outcomes
+- develop the independent `T(103)` / order-`103` amicable-matrix routes toward
+  `H(2060)`
+- make the primary-source decoding and artifact provenance maximally reproducible
+- preserve and cross-check the now-identified cyclic `H_4^*` bordered construction
+- determine the search or discovery provenance of its particular `Z_166` seed
+- analyze the verified matrix for block structure, symmetries, and relationships to
+  known Hadamard constructions
+- preserve the LP(333), fixed-`q`, and SDS search results as historical method work;
+  extend them only when they answer a distinct structural or algorithmic question
 
 ## Limitations
 

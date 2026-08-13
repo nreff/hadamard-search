@@ -12,31 +12,96 @@ It answers:
 
 ## Mission
 
-Goal:
-- build a research-grade computational pipeline that could help discover a new Hadamard matrix of order `668`
+Current goal:
+- attack `2060 = 4*515`, the least unknown order on the post-announcement public,
+  verifiable record, through exact structured construction families
+- preserve and independently validate the now-known Hadamard matrix of order `668`
+- preserve and analyze its now-identified cyclic `H_4^*` / bordered construction
+- determine how its particular `Z_166` seed was discovered or searched for
+- retain the repository's search work as reproducible computational-methods research
 
-Primary mathematical route:
+Target status:
+- the public `2026-08-12` payload fills the twelve former gaps below `2000`; after
+  updating the 2025 Cati--Pasechnik table, its first surviving entry is `515(3)`,
+  so `H(2060)` is the current reproducible frontier
+- an old claim of `H(2060)` is not accepted as a witness: the modern audit could
+  not verify it, and the apparent order-`103` symmetric-block specialization has
+  a parity obstruction
+- existence at order `668` is solved
+- the repository fixture is exact and independently verified
+- the generic Wallis–Whiteman array and the exact cyclic seed parameters are
+  explained and reproduced in-tree
+- the public attribution account and discovery provenance of the particular seed
+  remain provisional or unknown
+- the general Hadamard conjecture remains open
+
+Historical primary mathematical route:
 - search for a **Legendre pair of length `333`**
 - use the **two-circulant-core (2cc)** construction to build `HM(668)`
 
-Secondary route:
+Historical secondary route:
 - search for structured **SDS / Goethals-Seidel** constructions over `Z_167`
 
 Why this repo exists:
-- direct search at order `668` is infeasible
-- structured search might be feasible with strong pruning, compression, and reproducible artifacts
-- the engineering pipeline itself may become a novel computational method if it materially changes what is feasible
+- it began because direct search at order `668` was infeasible and structured search
+  might have become feasible with strong pruning, compression, and reproducible
+  artifacts
+- it now also preserves and interrogates an exact witness from the public result
+- the engineering pipeline and its negative results may still become useful
+  computational-methods work if they materially change what is feasible elsewhere
 
 Background documents:
 - [deep-research-report.md](/home/nate/projects/hadamard/docs/research/deep-research-report.md)
 - [legendre-pair.md](/home/nate/projects/hadamard/docs/algorithms/legendre-pair.md)
 - [sds-167.md](/home/nate/projects/hadamard/docs/algorithms/sds-167.md)
+- [modular-golay-167.md](/home/nate/projects/hadamard/docs/research/modular-golay-167.md)
+- [hm-668-construction.md](/home/nate/projects/hadamard/docs/research/hm-668-construction.md)
+- [hm-2060-frontier.md](/home/nate/projects/hadamard/docs/research/hm-2060-frontier.md)
 - [RESEARCH_STATUS.md](/home/nate/projects/hadamard/docs/RESEARCH_STATUS.md)
 - [EXPERIMENT_INDEX.md](/home/nate/projects/hadamard/docs/EXPERIMENT_INDEX.md)
 
 ## Current Snapshot
 
 Current state:
+- the selected `H(2060)` attack is a cyclic Goethals--Seidel search over `Z_515`
+  invariant under its order-`17` multiplier subgroup; this reduces the four sign
+  sequences to `140` orbit-membership bits and the nonzero correlations to `17`
+  independent shift-orbit equations
+- the transparent exact model has `2,520` variables and `9,541` constraints; an
+  exhaustively tested singleton normalization plus four safe reflection leaders
+  yields one full-family order-`17` shard with `1,860` variables and `6,985`
+  constraints
+- a `30`-second RoundingSat calibration on that reduced shard returned only
+  `TIMELIMIT` after `672,083` conflicts; a `170`-second deterministic orbit-swap
+  heuristic found no witness but reached squared shift-equation defect `24`
+- multiplier compatibility uniquely selects row sums `[1,3,31,33]`, negative
+  support sizes `[257,256,242,241]`, fixed-point counts `[2,1,4,3]`, and
+  nonfixed-orbit counts `[15,15,14,14]` for this shard
+- [`fixtures/known/hm-668/matrix.txt`](/home/nate/projects/hadamard/fixtures/known/hm-668/matrix.txt)
+  is a verified `668 x 668` matrix with entries in `{+1,-1}` and SHA-256
+  `bdeb5059d77e2703211082627b60441b8c888c928a55cc6f295e011941a387b0`
+- the fixture was reconstructed from the primary X
+  [`+/-` payload](https://x.com/__alpoge__/status/2087504785952182273) and
+  [`decoder/generator`](https://x.com/__alpoge__/status/2087504788938510427)
+- the first `664` signs of the extracted primary sign stream split into four
+  length-`166` sequences with row sums `[2,0,0,0]` and combined periodic
+  autocorrelation `-4` at every nonzero shift;
+  their negative supports form a cyclic type-`H_4^*` difference family
+  `(166;82,83,83,83;164)`, equivalently the positive supports form
+  `(166;84,83,83,83;166)`
+- the standard Wallis–Whiteman bordered array is implemented by
+  `build_spence_hadamard`; the compact seed reconstructs `matrix.txt` byte for byte
+- a separate standard-library Python implementation independently reconstructs the
+  same bytes without the public shell generator or Rust builder
+- a direct Python row-dot verifier and an independent optimized Rust
+  Hamming-distance verifier each checked all `222,778` unordered off-diagonal row
+  pairs exactly and confirmed `H H^T = 668 I`
+- [Epoch AI reports order `668` as solved](https://epoch.ai/frontiermath/open-problems/hadamard);
+  its same-day public account may still be revised, but that provisional public
+  status does not weaken the exact artifact verification recorded here
+- the array theorem and orthogonality mechanism are now explained; the immediate
+  provenance question is how this particular cyclic `Z_166` family was discovered
+  or searched for. The artifact does not resolve the general Hadamard conjecture
 - working research scaffold
 - not yet a production `LP(333)` solver
 - compressed search and first decompression prototype exist
@@ -49,7 +114,17 @@ Current state:
 - decompression now applies multi-layer canonical-prefix pruning during expansion
 - decompression now reuses exact candidates via complementary Legendre-signature buckets
 - SDS block representation, difference-profile math, and a small meet-in-the-middle search scaffold now exist
+- a checked Goethals-Seidel constructor now closes the `four complementary sequences / SDS -> Hadamard` path
+- the published length-`167` 64-modular Golay quadruple now has a reproducible audit,
+  an exact fixed-`q` reduction to `164` signs and `81` XOR-cardinality equations,
+  an exact `42`-case modulo-`4` quotient, a lag-parity reduction to `22` feasible
+  cases, a `14`-representative reversal quotient, and a restricted-OPB
+  proof-campaign export; an optional exact `T`-fixed construction campaign reduces
+  further to `1,642` variables and `6,288` constraints per shard but is not a
+  full-family refutation path;
+  all current bounded solver runs remain unresolved
 - checkpoint and bucket parsing now reject unknown schema versions, and LP artifacts carry explicit run metadata
+- compressed checkpoints now validate run metadata and resume without repeating consumed pairs; shard-local attempt metrics no longer confuse the global resume cursor with the number of attempts processed by one shard; compressed row-sum and spectral bounds now honor the configured factor and target
 - compressed generation now has branch-and-bound row-sum and low-frequency DFT pruning, with a first length-`33` scaling baseline recorded
 - compressed pair scoring now deduplicates unordered candidate pairs before residual/PSD evaluation
 - an experimental pair-aware compressed-prefix probe now exists, with exact joint squared-norm pruning and endpoint-aware partial autocorrelation bounds
@@ -110,6 +185,8 @@ Current state:
   - the fixed-row `(3,1)` value/profile builders now use exact suffix target reachability and the new frontier order; `hadamard analyze lp333-multiplier --invariant-shift31-profile` also reports active-assignment capacity and fill rate (`fill_ppm = assignments / capacity * 1,000,000`). With the `100,000` value-state cap, the fixed-row side stops after `7` processed variables at active width `4` (`~2.8k` assignments, max `93` / `95` values per assignment), while the nonfixed raw table reaches the width-`11` frontier and still caps at `100,000` values
   - `hadamard analyze lp333-multiplier --invariant-shift31-compressed-profile` now profiles a row-signature plus bounded-energy-bitset representation using that frontier order; the cap is configurable with `--invariant-shift31-profile-limit N`. At the default `100,000` signature cap, both nonfixed profiles now complete exactly (`31,020` / `26,598` signatures and `267,044` / `162,860` energy bits), while fixed stops after `7` variables. In release mode with the direct fixed assignment representation, cap `30,000,000` completes the fixed side exactly in about `22s`, with peak `20,849,958` row signatures and `58,360,095` energy bits.
   - an opt-in exact value-table scaffold for that same shift now exists behind `hadamard analyze lp333-multiplier --invariant-shift31-exact`; in release mode it completes in about `189s`, with fixed targets `42 / 42`, nonfixed targets `6 / 6`, max row energy values `84`, and `1,296` feasible row pairs. Therefore exact single shift `(3,1)` is non-pruning: aggregate pattern mass remains `log10 ~= 60.818`, and the next multiplier discriminator needs coupled mixed shifts or a stronger invariant, not another single-shift marginal.
+  - a new opt-in coupled mixed-shift graph sweep now exists behind `hadamard analyze lp333-multiplier --invariant-mixed-shift-pairs`; it ranks labeled pairs of column-shift orbits before a heavier exact representation is attempted. The `66` labeled pairs reduce to `6` multiplier-ratio classes. `(1,11)` is a representative of the cheapest observed class for both surviving order-`3` mixed targets, not a unique or proved-strongest choice; it keeps the fixed-row union graph at frontier width `6` while raising the nonfixed union graph to frontier width `18` (`2^18 = 262,144` states).
+  - a reproducible PB-geometry audit reduces the `1,296` exact row-marginal pairs to `19` safe symmetry orbits per surviving subgroup (`2` orbits of size `36`, `17` of size `72`). Each of the resulting `38` planned shards has `226` base signs, `12,656` shared XOR auxiliaries, and `56` independent weighted shift equations. This supports a streamed PB export; it does not make the two-energy coupled frontier practical in memory.
   - the remaining multiplier-subfamily targets are now the two non-column-trivial order-`3` `row_units={1,4,7}` subgroups, where row orbits are tied by column permutations rather than identical row sequences; the next missing check is mixed CRT compatibility on actual invariant sign tables
 - the heaviest surviving bundled pair orbit still has raw exact lift space about `1.4545e18`, so a naive exact row-shift `1,2,4` lift is not viable
 - but the first compressed `UV -> W` transition state on that same orbit is only about `1.11e6` / `1.16e6` signatures per side, and the measured collapse now appears concentrated at the final `W` frontier rather than inside the `UV` table itself, so an optimized orbit-level exact lift still looks plausible if it batches on that downstream key
@@ -121,9 +198,14 @@ Current known-case ladder:
 - [x] order `20` from a length-`9` Legendre pair
 - [x] order `24` from a length-`11` Legendre pair
 - [x] order `28` from a length-`13` Legendre pair
+- [x] order `668` public artifact reconstructed and checked by two independent exact
+  verifiers
+- [x] order `668` compact `4 x 166` seed reconstructed through the native
+  Wallis–Whiteman builder byte for byte
 - [x] compressed length-`9`, factor-`3` bucket/decompression demo
 - [x] length-`15`, factor-`3` compressed benchmark artifact
-- [ ] any serious `333`-scale decompression
+- [ ] any serious `333`-scale decompression (retained as historical methods work,
+  not needed to establish order-`668` existence)
 
 ## Milestone Board
 
@@ -189,6 +271,8 @@ Status:
 - [x] order `20` fixture
 - [x] order `24` fixture
 - [x] order `28` fixture
+- [x] order `668` fixture with primary-source provenance and two independent exact
+  all-pairs checks
 - [x] more nontrivial known constructions
 - [x] independent exported-matrix checks for the current future fixture set
 
@@ -206,7 +290,7 @@ Status:
 Status:
 - complete for small exact instances, not yet scaled toward `Z_167`
 
-### M6. First serious `LP(333)` campaign
+### M6. First serious `LP(333)` campaign (historical methods track)
 
 - [x] production search config-file support
 - [x] initial campaign-template configs
@@ -217,7 +301,23 @@ Status:
 - [ ] productionize or replace the experimental pair-aware compressed search path
 
 Status:
-- started, but still blocked on `333`-scale compressed candidate generation
+- partially complete and still blocked on `333`-scale compressed candidate
+  generation; no longer a blocker to order-`668` existence or the top active priority
+
+### M7. Preserve, verify, and identify `HM(668)`
+
+- [x] exact `668 x 668` fixture and primary-source hashes
+- [x] two independent exact all-pairs verifiers
+- [x] compact four-sequence seed extracted from the primary payload
+- [x] cyclic type-`H_4^*` parameters and combined PAF identity checked exactly
+- [x] native Wallis–Whiteman construction
+- [x] byte-identical reconstruction of the stored fixture
+- [x] independent standard-library Python reconstruction of the same bytes
+- [ ] documented discovery/search provenance for the particular `Z_166` family
+
+Status:
+- artifact preservation, structural identification, and reconstruction complete;
+  seed-discovery provenance remains open
 
 ## What Works Today
 
@@ -225,6 +325,8 @@ You can do these things right now:
 
 - run the full Rust test suite
 - run the known exact fixtures
+- re-check the exact order-`668` fixture and its recorded SHA-256
+- reconstruct the fixture byte for byte from its compact cyclic `4 x 166` seed
 - build and verify small Hadamard matrices from known pairs
 - run compressed search on the known length-`9` demo
 - run compressed search on the length-`15` benchmark and inspect the larger bucket metrics
@@ -232,6 +334,11 @@ You can do these things right now:
 - decompress those bucket artifacts back to canonical exact pairs
 - observe branch-pruning metrics during decompression, including the reduced `43`-candidate, `39`-bucket, `47`-pair, `24`-match length-`15` recovery set
 - run a small SDS meet-in-the-middle recovery over `Z_5`
+- build a Goethals-Seidel matrix from four complementary sequences
+- reproduce the published 64-modular seed and build its exact fixed-`q` solver model
+- enumerate or select its `42` exact modulo-`4` quotient cases, eliminate `20` by
+  the exact lag-parity lemma, export the complete `14`-representative restricted-OPB
+  campaign, and independently verify an external signed model
 - run a larger compressed smoke probe via `configs/baselines/lp33-compressed3-smoke.cfg`
 - run the experimental joint compressed-pair probe on reduced lengths `5` and `11`
 - read the detailed verification/novelty audit in [RESEARCH_STATUS.md](/home/nate/projects/hadamard/docs/RESEARCH_STATUS.md)
@@ -254,22 +361,46 @@ cargo run -p hadamard-cli -- search lp --config configs/baselines/lp33-compresse
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 15 --compression 3 --max-pairs 32
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --max-pairs 1
 cargo run -p hadamard-cli -- search sds --order 5 --block-sizes 2,2,0,0 --lambda 1 --max-matches 4
+uv run python py/search_modular_golay.py --audit-only
+uv run python py/search_modular_golay.py --export-opb-dir outputs/fixed-q-opb
+uv run python py/search_modular_golay.py --export-t-fixed-opb-dir outputs/fixed-q-opb-t-fixed
+uv run python py/test_search_modular_golay.py
 uv run python py/validate_matrix.py fixtures/known/hadamard-small/order20.txt
 uv run python py/validate_matrix.py fixtures/known/hadamard-small/order24.txt
 uv run python py/validate_matrix.py fixtures/known/hadamard-small/order28.txt
+uv run python py/validate_matrix.py fixtures/known/hm-668/matrix.txt
+cargo run -p hadamard-cli -- verify matrix --input fixtures/known/hm-668/matrix.txt
+cargo run -p hadamard-cli -- build spence --sequences-in fixtures/known/hm-668/spence-sequences.txt --output /tmp/hm668-spence.txt
+cmp /tmp/hm668-spence.txt fixtures/known/hm-668/matrix.txt
+uv run python py/reconstruct_hm668.py fixtures/known/hm-668/spence-sequences.txt /tmp/hm668-python.txt
+cmp /tmp/hm668-python.txt fixtures/known/hm-668/matrix.txt
 ```
 
 ## Immediate Next Work
 
 Highest-value next steps:
 
-1. Keep the current exact-tail compressed-pair path as a runtime baseline, but treat the CRT analyzer as the main discovery path for now.
-2. Turn the surviving CRT row-bundle problem into an optimized exact lift over row shifts `1,2,4`, keyed by orbit-level transition signatures rather than naive lifted rows.
-3. Continue the two surviving non-column-trivial order-`3` `row_units={1,4,7}` multiplier targets by deriving coupled mixed CRT constraints for the `col_units={1,10,26}` row-orbit action, starting from the `1,296` fixed-row-compatible row marginals; corrected `(3,0)`, `(0,1)`, exact `(3,1)`, and the first relaxed two-shift coupling do not prune.
-4. Promote any CRT or multiplier invariant into the hot search path only after it is exact, documented, and benchmarked against the current reduced anchors.
-5. If the algebraic sieve line stalls, then revisit a genuinely different exact factorization such as `4+4+4`, not more local tweaks of the current `6+6` join.
+1. Export, independently audit, and run a proof-producing solver portfolio on the
+   exact order-`17` multiplier-invariant `Z_515` GS shard. Accept only a fully
+   verified SAT witness or proof-checked subfamily UNSAT result; timeouts are no
+   conclusion.
+2. Develop an independent `BS(52,51) -> T(103) -> Cooper--Wallis/W(5)` lane and
+   an order-`103` amicable-matrix lane toward `H(2060)`.
+3. Preserve the primary X payload and decoder provenance, their hashes, and the
+   audited reconstruction steps in a durable, reproducible record independent of
+   the live social-media presentation.
+4. Determine the discovery or search provenance of the particular cyclic
+   `(166;82,83,83,83;164)` family. Do not infer that it came from a named Spence
+   relative-difference-set family merely because it uses the generic bordered array.
+5. Extend structural analysis beyond the now-proved circulant blocks and border to
+   normalization, automorphisms, ranks, and useful equivalence fingerprints.
+6. Preserve both compact-seed reconstruction paths and their exact digests: the
+   native builder and the independent standard-library Python implementation.
+7. Keep the LP(333), fixed-`q`, CRT, and SDS results as reproducible historical
+   search work. Resume expensive searches only for a distinct methods or structural
+   question, with the existing exact benchmarks and proof discipline intact.
 
-Focused note:
+Historical search note:
 
 - see [docs/research/crt-multiplier-roadmap.md](/home/nate/projects/hadamard/docs/research/crt-multiplier-roadmap.md) for the current algebraic-sieve-first plan
 

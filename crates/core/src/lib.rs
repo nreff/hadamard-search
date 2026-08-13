@@ -4,8 +4,11 @@ mod psd;
 mod sds;
 mod sequence;
 
-pub use artifact::{ArtifactHeader, CheckpointState, SearchArtifact, CURRENT_ARTIFACT_VERSION};
-pub use matrix::Matrix;
+pub use artifact::{
+    ArtifactHeader, CheckpointState, SearchArtifact, CURRENT_ARTIFACT_VERSION,
+    CURRENT_CHECKPOINT_VERSION,
+};
+pub use matrix::{HadamardCheck, Matrix};
 pub use psd::{
     available_psd_backends, default_psd_backend, get_psd_backend, AutocorrelationPsdBackend,
     DirectPsdBackend, FftPsdBackend, PsdBackend,

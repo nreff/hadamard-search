@@ -1,7 +1,9 @@
-use hadamard_construct::build_two_circulant_hadamard;
+use hadamard_construct::{
+    build_goethals_seidel, build_spence_hadamard, build_two_circulant_hadamard,
+};
 use hadamard_core::{
     available_psd_backends, exact_row_sum_square_candidates_167, get_psd_backend, CheckpointState,
-    LegendrePair, Sequence,
+    LegendrePair, Matrix, Sequence,
 };
 use hadamard_search::{
     decompress_bucket_artifact, direct_compressed_pair_probe, mitm_compressed_pair_probe,
@@ -194,6 +196,14 @@ fn cmd_analyze_lp333_multiplier(args: Vec<String>) -> Result<(), String> {
         .iter()
         .any(|arg| arg == "--invariant-shift31-compressed-profile");
     let include_invariant_shift31_exact = args.iter().any(|arg| arg == "--invariant-shift31-exact");
+    let include_invariant_mixed_shift_pairs = args
+        .iter()
+        .any(|arg| arg == "--invariant-mixed-shift-pairs");
+    let invariant_mixed_shift_pair_limit =
+        find_flag_value(&args, "--invariant-mixed-shift-pair-limit")
+            .map(|value| parse_usize_flag(&value, "--invariant-mixed-shift-pair-limit"))
+            .transpose()?
+            .unwrap_or(8);
     let invariant_shift31_profile_limit =
         find_flag_value(&args, "--invariant-shift31-profile-limit")
             .map(|value| parse_usize_flag(&value, "--invariant-shift31-profile-limit"))
@@ -207,6 +217,8 @@ fn cmd_analyze_lp333_multiplier(args: Vec<String>) -> Result<(), String> {
         include_invariant_shift31_profile,
         include_invariant_shift31_compressed_profile,
         include_invariant_shift31_exact,
+        include_invariant_mixed_shift_pairs,
+        invariant_mixed_shift_pair_limit,
         invariant_shift31_profile_limit,
     )
 }
@@ -219,6 +231,8 @@ fn print_lp333_multiplier_analysis(
     include_invariant_shift31_profile: bool,
     include_invariant_shift31_compressed_profile: bool,
     include_invariant_shift31_exact: bool,
+    include_invariant_mixed_shift_pairs: bool,
+    invariant_mixed_shift_pair_limit: usize,
     invariant_shift31_profile_limit: usize,
 ) -> Result<(), String> {
     let n = 333u32;
@@ -260,6 +274,7 @@ fn print_lp333_multiplier_analysis(
         || include_invariant_shift31_profile
         || include_invariant_shift31_compressed_profile
         || include_invariant_shift31_exact
+        || include_invariant_mixed_shift_pairs
     {
         let cyclic_hypotheses = cyclic_multiplier_hypotheses(&units, n, &row_bundle_pair_masses);
         let row_units_147_hypotheses = cyclic_hypotheses
@@ -452,6 +467,24 @@ fn print_lp333_multiplier_analysis(
                                 include_invariant_shift31_compressed_profile,
                                 invariant_shift31_profile_limit,
                                 &mut fixed_shift31_compressed_profile_cache,
+                            ),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";")
+            );
+        }
+        if include_invariant_mixed_shift_pairs {
+            println!(
+                "crt_component_row_units_147_order_3_invariant_mixed_shift_pair_graphs={}",
+                row_units_147_order_3_nontrivial_hypotheses
+                    .iter()
+                    .map(|hypothesis| {
+                        row_units_147_invariant_mixed_shift_pair_graph_summary(
+                            &row_units_147_invariant_mixed_shift_pair_graph_analysis(
+                                &row_bundle_pair_masses,
+                                &hypothesis.subgroup,
+                                invariant_mixed_shift_pair_limit,
                             ),
                         )
                     })
@@ -1297,6 +1330,33 @@ struct RowUnits147InvariantShift31ExactAnalysis {
     top_feasible_samples: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+struct RowUnits147InvariantMixedShiftPairGraphAnalysis {
+    subgroup: Vec<u32>,
+    column_generator: u32,
+    exact_row_pair_count: u128,
+    fixed_triple_target_count: usize,
+    nonfixed_row_sum_target_count: usize,
+    column_shift_representatives: Vec<usize>,
+    single_shift_graphs: Vec<MixedShiftSingleGraphSummary>,
+    pair_graph_count: usize,
+    top_pair_graphs: Vec<MixedShiftPairGraphSummary>,
+}
+
+#[derive(Clone, Debug)]
+struct MixedShiftSingleGraphSummary {
+    column_shift: usize,
+    fixed_graph: ShiftGraphStats,
+    nonfixed_graph: ShiftGraphStats,
+}
+
+#[derive(Clone, Debug)]
+struct MixedShiftPairGraphSummary {
+    column_shifts: (usize, usize),
+    fixed_graph: ShiftGraphStats,
+    nonfixed_graph: ShiftGraphStats,
+}
+
 fn cyclic_multiplier_hypotheses(
     units: &[u32],
     modulus: u32,
@@ -1988,6 +2048,13 @@ fn row_units_147_order3_column_generator(subgroup: &[u32]) -> Option<u32> {
         .map(|unit| unit % 37)
 }
 
+fn col10_column_shift_representatives() -> Vec<usize> {
+    action_orbits_mod(37, &[1, 10, 26], false)
+        .into_iter()
+        .map(|orbit| orbit[0] as usize)
+        .collect()
+}
+
 fn row_units_147_invariant_shift31_value_profile(
     column_generator: u32,
     fixed_triple_targets: &BTreeSet<(i32, i32, i32)>,
@@ -2089,6 +2156,97 @@ fn row_units_147_invariant_shift31_exact_analysis(
             })
             .collect(),
     }
+}
+
+fn row_units_147_invariant_mixed_shift_pair_graph_analysis(
+    pair_masses: &[RowBundlePairMass],
+    subgroup: &[u32],
+    pair_limit: usize,
+) -> RowUnits147InvariantMixedShiftPairGraphAnalysis {
+    debug_assert_eq!(sorted_residues(subgroup, 9), vec![1, 4, 7]);
+    debug_assert_eq!(subgroup.len(), 3);
+    let column_generator = row_units_147_order3_column_generator(subgroup)
+        .expect("order-3 row_units={1,4,7} subgroup must have a row-unit-4 generator");
+    let mut fixed_shift31_compressed_profile_cache =
+        HashMap::<(Vec<(i32, i32, i32)>, usize), Shift31CompressedDpProfile>::new();
+    let baseline = row_units_147_invariant_shift31_graph_analysis(
+        pair_masses,
+        subgroup,
+        false,
+        false,
+        false,
+        SHIFT31_VALUE_PROFILE_LIMIT,
+        &mut fixed_shift31_compressed_profile_cache,
+    );
+    let column_shift_representatives = col10_column_shift_representatives();
+    let single_shift_graphs = column_shift_representatives
+        .iter()
+        .copied()
+        .map(|column_shift| MixedShiftSingleGraphSummary {
+            column_shift,
+            fixed_graph: col10_fixed_triple_mixed_shift_graph_stats(column_shift),
+            nonfixed_graph: col10_nonfixed_row_orbit_mixed_shift_graph_stats(
+                column_generator,
+                column_shift,
+            ),
+        })
+        .collect::<Vec<_>>();
+
+    let mut pair_graphs = Vec::new();
+    for i in 0..column_shift_representatives.len() {
+        for j in i + 1..column_shift_representatives.len() {
+            let left_shift = column_shift_representatives[i];
+            let right_shift = column_shift_representatives[j];
+            pair_graphs.push(MixedShiftPairGraphSummary {
+                column_shifts: (left_shift, right_shift),
+                fixed_graph: col10_fixed_triple_mixed_shift_pair_graph_stats(
+                    left_shift,
+                    right_shift,
+                ),
+                nonfixed_graph: col10_nonfixed_row_orbit_mixed_shift_pair_graph_stats(
+                    column_generator,
+                    left_shift,
+                    right_shift,
+                ),
+            });
+        }
+    }
+    let pair_graph_count = pair_graphs.len();
+    pair_graphs.sort_unstable_by(mixed_shift_pair_graph_rank_cmp);
+    pair_graphs.truncate(pair_limit);
+
+    RowUnits147InvariantMixedShiftPairGraphAnalysis {
+        subgroup: subgroup.to_vec(),
+        column_generator,
+        exact_row_pair_count: baseline.exact_row_pair_count,
+        fixed_triple_target_count: baseline.fixed_triple_target_count,
+        nonfixed_row_sum_target_count: baseline.nonfixed_row_sum_target_count,
+        column_shift_representatives,
+        single_shift_graphs,
+        pair_graph_count,
+        top_pair_graphs: pair_graphs,
+    }
+}
+
+fn mixed_shift_pair_graph_rank_cmp(
+    left: &MixedShiftPairGraphSummary,
+    right: &MixedShiftPairGraphSummary,
+) -> std::cmp::Ordering {
+    mixed_shift_pair_graph_rank_key(left).cmp(&mixed_shift_pair_graph_rank_key(right))
+}
+
+fn mixed_shift_pair_graph_rank_key(
+    graph: &MixedShiftPairGraphSummary,
+) -> (usize, usize, usize, usize, usize, usize, (usize, usize)) {
+    (
+        graph.fixed_graph.frontier_width,
+        graph.nonfixed_graph.frontier_width,
+        graph.fixed_graph.min_fill_width,
+        graph.nonfixed_graph.min_fill_width,
+        graph.fixed_graph.edge_count,
+        graph.nonfixed_graph.edge_count,
+        graph.column_shifts,
+    )
 }
 
 fn row_units_147_invariant_shift31_values_for_rows(
@@ -2349,6 +2507,64 @@ fn row_units_147_invariant_shift31_exact_summary(
         analysis.feasible_row_pair_count,
         pattern_log10,
         analysis.top_feasible_samples.join("|")
+    )
+}
+
+fn row_units_147_invariant_mixed_shift_pair_graph_summary(
+    analysis: &RowUnits147InvariantMixedShiftPairGraphAnalysis,
+) -> String {
+    format!(
+        "subgroup_crt={},column_generator={},exact_row_pairs={},fixed_triple_targets={},nonfixed_row_sum_targets={},column_shift_reps={},single_shift_frontiers={},pair_graphs={},top_pair_graphs={}",
+        format_crt_pair_list(&analysis.subgroup),
+        analysis.column_generator,
+        analysis.exact_row_pair_count,
+        analysis.fixed_triple_target_count,
+        analysis.nonfixed_row_sum_target_count,
+        format_usize_list(&analysis.column_shift_representatives),
+        analysis
+            .single_shift_graphs
+            .iter()
+            .map(mixed_shift_single_graph_summary)
+            .collect::<Vec<_>>()
+            .join("|"),
+        analysis.pair_graph_count,
+        analysis
+            .top_pair_graphs
+            .iter()
+            .map(mixed_shift_pair_graph_summary)
+            .collect::<Vec<_>>()
+            .join("|"),
+    )
+}
+
+fn mixed_shift_single_graph_summary(graph: &MixedShiftSingleGraphSummary) -> String {
+    format!(
+        "{}:{}:{}",
+        graph.column_shift,
+        compact_shift_graph_summary(&graph.fixed_graph),
+        compact_shift_graph_summary(&graph.nonfixed_graph),
+    )
+}
+
+fn mixed_shift_pair_graph_summary(graph: &MixedShiftPairGraphSummary) -> String {
+    format!(
+        "({},{}):{}:{}",
+        graph.column_shifts.0,
+        graph.column_shifts.1,
+        compact_shift_graph_summary(&graph.fixed_graph),
+        compact_shift_graph_summary(&graph.nonfixed_graph),
+    )
+}
+
+fn compact_shift_graph_summary(stats: &ShiftGraphStats) -> String {
+    format!(
+        "vars{},domain{},edges{},mf{},fw{},states{}",
+        stats.variable_count,
+        stats.domain_size,
+        stats.edge_count,
+        stats.min_fill_width,
+        stats.frontier_width,
+        stats.frontier_max_domain_states,
     )
 }
 
@@ -2938,26 +3154,43 @@ fn build_col10_fixed_shift1_table() -> HashMap<i32, BTreeSet<i32>> {
 }
 
 fn col10_fixed_triple_shift1_graph_stats() -> ShiftGraphStats {
-    let (edge_weights, self_terms) = col10_fixed_shift1_edge_weights();
+    col10_fixed_triple_mixed_shift_graph_stats(1)
+}
+
+fn col10_fixed_triple_mixed_shift_graph_stats(column_shift: usize) -> ShiftGraphStats {
+    let (edge_weights, self_terms) = col10_fixed_mixed_shift_edge_weights(column_shift);
     shift_graph_stats(13, &edge_weights, self_terms, 8)
 }
 
 fn col10_fixed_shift1_edge_weights() -> (HashMap<(usize, usize), i32>, i32) {
+    col10_fixed_mixed_shift_edge_weights(1)
+}
+
+fn col10_fixed_triple_mixed_shift_pair_graph_stats(
+    left_shift: usize,
+    right_shift: usize,
+) -> ShiftGraphStats {
+    let (edge_weights, self_terms) = merged_edge_weights_and_self_terms(&[
+        col10_fixed_mixed_shift_edge_weights(left_shift),
+        col10_fixed_mixed_shift_edge_weights(right_shift),
+    ]);
+    shift_graph_stats(13, &edge_weights, self_terms, 8)
+}
+
+fn col10_fixed_mixed_shift_edge_weights(
+    column_shift: usize,
+) -> (HashMap<(usize, usize), i32>, i32) {
     let orbits = col10_column_orbits();
     let orbit_lookup = col10_orbit_lookup(&orbits);
     let mut edge_weights = HashMap::<(usize, usize), i32>::new();
     let mut self_terms = 0;
     for column in 0..37usize {
         let source = orbit_lookup[column].0;
-        let target = orbit_lookup[(column + 1) % 37].0;
+        let target = orbit_lookup[(column + column_shift) % 37].0;
         if source == target {
             self_terms += 1;
         } else {
-            let key = if source < target {
-                (source, target)
-            } else {
-                (target, source)
-            };
+            let key = sorted_pair(source, target);
             *edge_weights.entry(key).or_default() += 1;
         }
     }
@@ -3728,8 +3961,27 @@ fn col10_fixed_row_sum_can_reach(partial: i32, target: i32, remaining_columns: i
 }
 
 fn col10_nonfixed_row_orbit_shift31_graph_stats(column_generator: u32) -> ShiftGraphStats {
+    col10_nonfixed_row_orbit_mixed_shift_graph_stats(column_generator, 1)
+}
+
+fn col10_nonfixed_row_orbit_mixed_shift_graph_stats(
+    column_generator: u32,
+    column_shift: usize,
+) -> ShiftGraphStats {
     let (edge_weights, constant_energy) =
-        col10_nonfixed_row_orbit_shift31_edge_weights(column_generator);
+        col10_nonfixed_row_orbit_mixed_shift_edge_weights(column_generator, column_shift);
+    shift_graph_stats(37, &edge_weights, constant_energy, 2)
+}
+
+fn col10_nonfixed_row_orbit_mixed_shift_pair_graph_stats(
+    column_generator: u32,
+    left_shift: usize,
+    right_shift: usize,
+) -> ShiftGraphStats {
+    let (edge_weights, constant_energy) = merged_edge_weights_and_self_terms(&[
+        col10_nonfixed_row_orbit_mixed_shift_edge_weights(column_generator, left_shift),
+        col10_nonfixed_row_orbit_mixed_shift_edge_weights(column_generator, right_shift),
+    ]);
     shift_graph_stats(37, &edge_weights, constant_energy, 2)
 }
 
@@ -4054,21 +4306,27 @@ fn col10_nonfixed_row_orbit_shift31_compressed_profile(
 fn col10_nonfixed_row_orbit_shift31_edge_weights(
     column_generator: u32,
 ) -> (HashMap<(usize, usize), i32>, i32) {
+    col10_nonfixed_row_orbit_mixed_shift_edge_weights(column_generator, 1)
+}
+
+fn col10_nonfixed_row_orbit_mixed_shift_edge_weights(
+    column_generator: u32,
+    column_shift: usize,
+) -> (HashMap<(usize, usize), i32>, i32) {
     let mut edge_weights = HashMap::<(usize, usize), i32>::new();
     let mut constant_energy = 0i32;
     for row in [1u32, 4, 7] {
         for column in 0..37u32 {
             let source = nonfixed_row_orbit_base_column(row, column, column_generator);
-            let target =
-                nonfixed_row_orbit_base_column((row + 3) % 9, (column + 1) % 37, column_generator);
+            let target = nonfixed_row_orbit_base_column(
+                (row + 3) % 9,
+                (column + column_shift as u32) % 37,
+                column_generator,
+            );
             if source == target {
                 constant_energy += 1;
             } else {
-                let key = if source < target {
-                    (source, target)
-                } else {
-                    (target, source)
-                };
+                let key = sorted_pair(source, target);
                 *edge_weights.entry(key).or_default() += 1;
             }
         }
@@ -4116,6 +4374,20 @@ fn sorted_pair(left: usize, right: usize) -> (usize, usize) {
     } else {
         (right, left)
     }
+}
+
+fn merged_edge_weights_and_self_terms(
+    components: &[(HashMap<(usize, usize), i32>, i32)],
+) -> (HashMap<(usize, usize), i32>, i32) {
+    let mut merged = HashMap::<(usize, usize), i32>::new();
+    let mut self_terms = 0i32;
+    for (edge_weights, component_self_terms) in components {
+        self_terms += component_self_terms;
+        for (key, weight) in edge_weights {
+            *merged.entry(*key).or_default() += weight.abs();
+        }
+    }
+    (merged, self_terms)
 }
 
 fn binary_domain_sign(state_index: usize) -> i32 {
@@ -8450,17 +8722,108 @@ fn cmd_search_sds(args: Vec<String>) -> Result<(), String> {
 }
 
 fn cmd_verify(args: Vec<String>) -> Result<(), String> {
-    if args.first().map(String::as_str) != Some("lp") {
-        return Err("expected `verify lp`".to_string());
+    match args.first().map(String::as_str) {
+        Some("lp") => cmd_verify_lp(&args),
+        Some("matrix") => cmd_verify_matrix(&args),
+        _ => Err("expected `verify lp` or `verify matrix`".to_string()),
     }
-    let a = parse_sequence(&parse_flag_value(&args, "--a")?)?;
-    let b = parse_sequence(&parse_flag_value(&args, "--b")?)?;
+}
+
+fn cmd_verify_lp(args: &[String]) -> Result<(), String> {
+    let a = parse_sequence(&parse_flag_value(args, "--a")?)?;
+    let b = parse_sequence(&parse_flag_value(args, "--b")?)?;
     let pair = LegendrePair::new(a, b)?;
     println!("is_legendre_pair={}", pair.is_legendre_pair());
     println!("row_sum_a={}", pair.a.row_sum());
     println!("row_sum_b={}", pair.b.row_sum());
     println!("two_circulant_ready={}", pair.has_two_circulant_row_sums());
     Ok(())
+}
+
+fn cmd_verify_matrix(args: &[String]) -> Result<(), String> {
+    let input_path = parse_flag_value(args, "--input")?;
+    let input = fs::read_to_string(&input_path)
+        .map_err(|error| format!("failed to read matrix input `{input_path}`: {error}"))?;
+    let summary = verify_matrix_text(&input)?;
+    println!("rows={}", summary.rows);
+    println!("columns={}", summary.columns);
+    println!("is_hadamard={}", summary.is_hadamard);
+    println!(
+        "off_diagonal_pairs_checked={}",
+        summary.off_diagonal_pairs_checked
+    );
+    require_hadamard(summary)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MatrixVerificationSummary {
+    rows: usize,
+    columns: usize,
+    is_hadamard: bool,
+    off_diagonal_pairs_checked: usize,
+}
+
+fn require_hadamard(summary: MatrixVerificationSummary) -> Result<(), String> {
+    if summary.is_hadamard {
+        Ok(())
+    } else {
+        Err(format!(
+            "matrix is not Hadamard; failure detected after {} off-diagonal pair checks",
+            summary.off_diagonal_pairs_checked
+        ))
+    }
+}
+
+fn verify_matrix_text(input: &str) -> Result<MatrixVerificationSummary, String> {
+    let matrix = parse_matrix_text(input)?;
+    let check = matrix.check_hadamard();
+    Ok(MatrixVerificationSummary {
+        rows: matrix.rows(),
+        columns: matrix.cols(),
+        is_hadamard: check.is_hadamard,
+        off_diagonal_pairs_checked: check.off_diagonal_pairs_checked,
+    })
+}
+
+fn parse_matrix_text(input: &str) -> Result<Matrix, String> {
+    let mut rows = 0_usize;
+    let mut columns = None;
+    let mut values = Vec::new();
+
+    for (line_index, raw_line) in input.lines().enumerate() {
+        let line_number = line_index + 1;
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut row = Vec::with_capacity(line.len());
+        for (column_index, symbol) in line.chars().enumerate() {
+            match symbol {
+                '+' => row.push(1),
+                '-' => row.push(-1),
+                _ => {
+                    return Err(format!(
+                        "invalid matrix symbol `{symbol}` on line {line_number}, column {}; expected `+` or `-`",
+                        column_index + 1
+                    ));
+                }
+            }
+        }
+
+        let expected_columns = *columns.get_or_insert(row.len());
+        if row.len() != expected_columns {
+            return Err(format!(
+                "ragged matrix row on line {line_number}: found {} columns, expected {expected_columns}",
+                row.len()
+            ));
+        }
+        values.extend(row);
+        rows += 1;
+    }
+
+    let columns = columns.ok_or_else(|| "matrix input contains no nonempty rows".to_string())?;
+    Matrix::new(rows, columns, values)
 }
 
 fn cmd_decompress(args: Vec<String>) -> Result<(), String> {
@@ -8483,30 +8846,66 @@ fn cmd_decompress(args: Vec<String>) -> Result<(), String> {
 }
 
 fn cmd_build(args: Vec<String>) -> Result<(), String> {
-    if args.first().map(String::as_str) != Some("2cc") {
-        return Err("expected `build 2cc`".to_string());
-    }
-    let a = parse_sequence(&parse_flag_value(&args, "--a")?)?;
-    let b = parse_sequence(&parse_flag_value(&args, "--b")?)?;
-    let pair = LegendrePair::new(a, b)?;
-    let matrix = build_two_circulant_hadamard(&pair)?;
+    let matrix = match args.first().map(String::as_str) {
+        Some("2cc") => {
+            let a = parse_sequence(&parse_flag_value(&args, "--a")?)?;
+            let b = parse_sequence(&parse_flag_value(&args, "--b")?)?;
+            let pair = LegendrePair::new(a, b)?;
+            build_two_circulant_hadamard(&pair)?
+        }
+        Some("gs") => {
+            let a = parse_sequence(&parse_flag_value(&args, "--a")?)?;
+            let b = parse_sequence(&parse_flag_value(&args, "--b")?)?;
+            let c = parse_sequence(&parse_flag_value(&args, "--c")?)?;
+            let d = parse_sequence(&parse_flag_value(&args, "--d")?)?;
+            build_goethals_seidel([&a, &b, &c, &d])?
+        }
+        Some("spence") => {
+            let sequences_path = parse_flag_value(&args, "--sequences-in")?;
+            let _output_path = parse_flag_value(&args, "--output")?;
+            let input = fs::read_to_string(&sequences_path).map_err(|error| {
+                format!("failed to read Spence sequences `{sequences_path}`: {error}")
+            })?;
+            build_spence_matrix_text(&input)?
+        }
+        _ => {
+            return Err("expected `build 2cc`, `build gs`, or `build spence`".to_string());
+        }
+    };
     println!("order={}", matrix.rows());
     println!("is_hadamard={}", matrix.is_hadamard());
     if let Some(path) = find_flag_value(&args, "--output") {
-        let mut out = String::new();
-        for row in 0..matrix.rows() {
-            let mut line = String::new();
-            for col in 0..matrix.cols() {
-                let symbol = if matrix.get(row, col) == 1 { '+' } else { '-' };
-                line.push(symbol);
-            }
-            out.push_str(&line);
-            out.push('\n');
-        }
+        let out = matrix_to_pm_one_text(&matrix)?;
         write_output_text(&path, &out)?;
         println!("matrix_written={path}");
     }
     Ok(())
+}
+
+fn build_spence_matrix_text(input: &str) -> Result<Matrix, String> {
+    let sequences = parse_spence_sequences_text(input)?;
+    build_spence_hadamard([&sequences[0], &sequences[1], &sequences[2], &sequences[3]])
+}
+
+fn matrix_to_pm_one_text(matrix: &Matrix) -> Result<String, String> {
+    let mut output = String::new();
+    for row in 0..matrix.rows() {
+        for col in 0..matrix.cols() {
+            output.push(match matrix.get(row, col) {
+                1 => '+',
+                -1 => '-',
+                value => {
+                    return Err(format!(
+                        "matrix entry at row {}, column {} is {value}; expected -1 or +1",
+                        row + 1,
+                        col + 1
+                    ));
+                }
+            });
+        }
+        output.push('\n');
+    }
+    Ok(output)
 }
 
 fn cmd_enumerate(args: Vec<String>) -> Result<(), String> {
@@ -8742,6 +9141,49 @@ fn parse_sequence(input: &str) -> Result<Sequence, String> {
     Sequence::new(values)
 }
 
+fn parse_spence_sequences_text(input: &str) -> Result<[Sequence; 4], String> {
+    let mut sequences = Vec::new();
+    for (line_index, raw_line) in input.lines().enumerate() {
+        let line_number = line_index + 1;
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let sequence = parse_sequence(line)
+            .map_err(|error| format!("invalid Spence sequence on line {line_number}: {error}"))?;
+        sequences.push((line_number, sequence));
+    }
+
+    if sequences.len() != 4 {
+        return Err(format!(
+            "expected exactly four nonblank Spence sequence rows, found {}",
+            sequences.len()
+        ));
+    }
+
+    let expected_length = sequences[0].1.len();
+    for (line_number, sequence) in sequences.iter().skip(1) {
+        if sequence.len() != expected_length {
+            return Err(format!(
+                "Spence sequence on line {line_number} has length {}, expected {expected_length}",
+                sequence.len()
+            ));
+        }
+    }
+
+    let sequences: [(usize, Sequence); 4] =
+        sequences
+            .try_into()
+            .map_err(|sequences: Vec<(usize, Sequence)>| {
+                format!(
+                    "expected exactly four nonblank Spence sequence rows, found {}",
+                    sequences.len()
+                )
+            })?;
+    let [(_, a), (_, b), (_, c), (_, d)] = sequences;
+    Ok([a, b, c, d])
+}
+
 fn parse_flag_value(args: &[String], flag: &str) -> Result<String, String> {
     find_flag_value(args, flag).ok_or_else(|| format!("missing required flag `{flag}`"))
 }
@@ -8855,7 +9297,7 @@ fn usage(message: &str) -> String {
     };
     let usage_label = colorize_label("usage:", LABEL_COLOR);
     format!(
-        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--col10-coupled] [--invariant-shift31] [--invariant-shift31-profile] [--invariant-shift31-compressed-profile] [--invariant-shift31-profile-limit N] [--invariant-shift31-exact] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
+        "{banner}\n\n{message}\n{usage_label}\n  hadamard analyze lp333-crt\n  hadamard analyze lp333-crt-bundle [--bundle a,b,c]\n  hadamard analyze lp333-crt-pair [--left a,b,c] [--right d,e,f] [--left-shift 0|1|2] [--right-shift 0|1|2] [--shift 1|2|4] [--sample-buckets N] [--frontier-join] [--frontier-exact-join] [--two-shifts] [--all-shifts] [--exact-join]\n  hadamard analyze lp333-crt-component [--hub a,b,c]\n  hadamard analyze lp333-multiplier [--col10-shift1] [--col10-coupled] [--invariant-shift31] [--invariant-shift31-profile] [--invariant-shift31-compressed-profile] [--invariant-shift31-profile-limit N] [--invariant-shift31-exact] [--invariant-mixed-shift-pairs] [--invariant-mixed-shift-pair-limit N] [--crt-components]\n  hadamard search lp [--config PATH] --length N [--compression D] [--max-attempts M] [--shard i/n]\n  hadamard search sds --order N --block-sizes k1,k2,k3,k4 --lambda L [--max-matches M] [--shard i/n]\n  hadamard decompress lp --bucket-in PATH [--max-pairs N] [--artifact-out PATH]\n  hadamard verify lp --a +--++ --b +-+-+\n  hadamard verify matrix --input PATH\n  hadamard build 2cc --a +--++ --b +-+-+\n  hadamard build gs --a SEQ --b SEQ --c SEQ --d SEQ\n  hadamard build spence --sequences-in PATH --output PATH\n  hadamard enumerate sds-167\n  hadamard benchmark psd [--sequence +--++] [--backend direct|fft|autocorrelation]\n  hadamard benchmark compressed-pairs --length N [--compression D] [--ordering natural|generator2] [--spectral-frequencies K] [--tail-depth T] [--row-sum R] [--max-pairs M]\n  hadamard benchmark compressed-pairs-mitm --length N [--compression D] [--split contiguous|parity] [--row-sum R] [--max-pairs M]\n  hadamard test-known lp-small|lp-seven|lp-nine|lp-eleven|lp-thirteen"
     )
 }
 
@@ -8958,17 +9400,352 @@ fn _assert_path_is_relative(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        col10_fixed_shift1_values, col10_fixed_triple_dot_sum_values,
-        col10_fixed_triple_shift0_shift1_values, col10_self_dot_values,
-        cyclic_multiplier_hypotheses, parse_lp_search_file_config, row_bundle_pair_survival,
-        row_bundle_triples_for_row_units, row_mod3_bundle_pair_masses,
+        action_orbits_mod, build_spence_matrix_text, cmd_build, col10_fixed_shift1_values,
+        col10_fixed_triple_dot_sum_values, col10_fixed_triple_mixed_shift_graph_stats,
+        col10_fixed_triple_shift0_shift1_values, col10_nonfixed_row_orbit_mixed_shift_graph_stats,
+        col10_self_dot_values, cyclic_multiplier_hypotheses, parse_lp_search_file_config,
+        parse_matrix_text, parse_spence_sequences_text, require_hadamard, row_bundle_pair_survival,
+        row_bundle_triples_for_row_units, row_mod3_bundle_pair_masses, row_paf_pair_is_exact,
         row_units_147_col10_coupled_shift_analysis, row_units_147_full_row_lift_analysis,
+        row_units_147_invariant_marginals_for_bundle,
+        row_units_147_invariant_mixed_shift_pair_graph_analysis,
         row_units_147_invariant_row_lift_analysis, row_units_147_invariant_shift31_graph_analysis,
         row_units_147_shift0_dot_marginal_feasible, top_cyclic_hypothesis_crt_component_summaries,
-        units_mod, RowUnits147Marginal, Shift31CompressedDpProfile, LP333_ACTUAL_SHIFT_TARGET,
+        units_mod, verify_matrix_text, MatrixVerificationSummary, RowUnits147Marginal,
+        Shift31CompressedDpProfile, LP333_ACTUAL_SHIFT_TARGET, LP333_ROW_NORM_TARGET,
         LP333_ROW_SHIFT_TARGET, SHIFT31_VALUE_PROFILE_LIMIT,
     };
     use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    #[test]
+    fn matrix_parser_trims_rows_and_skips_blank_lines() {
+        let matrix = parse_matrix_text("\n  ++  \n\n  +-\t\n").expect("matrix");
+        assert_eq!((matrix.rows(), matrix.cols()), (2, 2));
+        assert_eq!(matrix.get(0, 0), 1);
+        assert_eq!(matrix.get(1, 1), -1);
+    }
+
+    #[test]
+    fn matrix_parser_reports_invalid_symbol_location() {
+        let error = parse_matrix_text("++\n\n+x\n").expect_err("invalid symbol");
+        assert_eq!(
+            error,
+            "invalid matrix symbol `x` on line 3, column 2; expected `+` or `-`"
+        );
+    }
+
+    #[test]
+    fn matrix_parser_rejects_ragged_and_empty_inputs() {
+        assert_eq!(
+            parse_matrix_text("++\n+\n").expect_err("ragged matrix"),
+            "ragged matrix row on line 2: found 1 columns, expected 2"
+        );
+        assert_eq!(
+            parse_matrix_text(" \n\t\n").expect_err("empty matrix"),
+            "matrix input contains no nonempty rows"
+        );
+    }
+
+    #[test]
+    fn matrix_verification_summary_checks_unordered_pairs() {
+        assert_eq!(
+            verify_matrix_text("++\n+-\n").expect("Hadamard matrix"),
+            MatrixVerificationSummary {
+                rows: 2,
+                columns: 2,
+                is_hadamard: true,
+                off_diagonal_pairs_checked: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn matrix_verification_failure_is_a_command_error() {
+        let summary = verify_matrix_text("++\n++\n").expect("well-formed matrix");
+        assert_eq!(
+            require_hadamard(summary).expect_err("non-Hadamard matrix must fail"),
+            "matrix is not Hadamard; failure detected after 1 off-diagonal pair checks"
+        );
+    }
+
+    #[test]
+    fn spence_sequence_parser_accepts_four_trimmed_equal_rows() {
+        let sequences =
+            parse_spence_sequences_text("\n ++ \n\n+-\n -+\n+-\n").expect("Spence sequences");
+        assert_eq!(
+            sequences.map(|sequence| sequence.to_line()),
+            ["++", "+-", "-+", "+-"]
+        );
+    }
+
+    #[test]
+    fn spence_sequence_parser_reports_count_symbols_and_lengths() {
+        assert_eq!(
+            parse_spence_sequences_text("++\n+-\n+-\n").expect_err("three sequences"),
+            "expected exactly four nonblank Spence sequence rows, found 3"
+        );
+        assert_eq!(
+            parse_spence_sequences_text("++\n+-\n+x\n+-\n").expect_err("invalid symbol"),
+            "invalid Spence sequence on line 3: invalid sequence symbol: x"
+        );
+        assert_eq!(
+            parse_spence_sequences_text("++\n+-\n+\n+-\n").expect_err("unequal lengths"),
+            "Spence sequence on line 3 has length 1, expected 2"
+        );
+    }
+
+    #[test]
+    fn spence_build_helper_constructs_small_hadamard() {
+        let matrix = build_spence_matrix_text("++\n+-\n+-\n+-\n").expect("Spence matrix");
+        assert_eq!((matrix.rows(), matrix.cols()), (12, 12));
+        assert!(matrix.is_hadamard());
+    }
+
+    #[test]
+    fn spence_build_command_requires_output_and_writes_pm_one_rows() {
+        let missing_output = cmd_build(vec![
+            "spence".to_string(),
+            "--sequences-in".to_string(),
+            "unused.txt".to_string(),
+        ])
+        .expect_err("required output");
+        assert_eq!(missing_output, "missing required flag `--output`");
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "hadamard-spence-cli-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).expect("create temp directory");
+        let input_path = directory.join("sequences.txt");
+        let output_path = directory.join("matrix.txt");
+        std::fs::write(&input_path, "++\n+-\n+-\n+-\n").expect("write sequences");
+
+        cmd_build(vec![
+            "spence".to_string(),
+            "--sequences-in".to_string(),
+            input_path.to_string_lossy().into_owned(),
+            "--output".to_string(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .expect("build Spence matrix");
+
+        let output = std::fs::read_to_string(&output_path).expect("read matrix");
+        let matrix = parse_matrix_text(&output).expect("parse written matrix");
+        assert_eq!((matrix.rows(), matrix.cols()), (12, 12));
+        assert!(matrix.is_hadamard());
+        assert!(output.ends_with('\n'));
+        assert!(output
+            .lines()
+            .all(|line| line.len() == 12 && line.bytes().all(|byte| matches!(byte, b'+' | b'-'))));
+
+        std::fs::remove_dir_all(directory).expect("remove temp directory");
+    }
+
+    fn invariant_order3_exact_row_pairs(subgroup: &[u32]) -> BTreeSet<([i32; 9], [i32; 9])> {
+        let pair_masses = row_mod3_bundle_pair_masses();
+        let allowed_bundles = row_bundle_triples_for_row_units(&[1, 4, 7]);
+        let bundle_pairs = pair_masses
+            .iter()
+            .filter(|pair| {
+                allowed_bundles.contains(&pair.left) && allowed_bundles.contains(&pair.right)
+            })
+            .collect::<Vec<_>>();
+        let active_bundles = bundle_pairs
+            .iter()
+            .flat_map(|pair| [pair.left, pair.right])
+            .collect::<BTreeSet<_>>();
+        let mut pattern_count_cache = HashMap::<Vec<u32>, BTreeMap<i32, u128>>::new();
+        let marginal_cache = active_bundles
+            .iter()
+            .map(|bundle| {
+                (
+                    *bundle,
+                    row_units_147_invariant_marginals_for_bundle(
+                        *bundle,
+                        subgroup,
+                        &mut pattern_count_cache,
+                    ),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        let mut exact = BTreeSet::new();
+        for pair in bundle_pairs {
+            let left_marginals = marginal_cache
+                .get(&pair.left)
+                .expect("active left bundle must have invariant marginals");
+            let right_marginals = marginal_cache
+                .get(&pair.right)
+                .expect("active right bundle must have invariant marginals");
+            for left in left_marginals {
+                for right in right_marginals {
+                    if left.norm + right.norm == LP333_ROW_NORM_TARGET
+                        && row_paf_pair_is_exact(&left.paf, &right.paf)
+                    {
+                        exact.insert((left.rows, right.rows));
+                    }
+                }
+            }
+        }
+        exact
+    }
+
+    fn transform_row_marginal(rows: [i32; 9], multiplier: usize, translation: usize) -> [i32; 9] {
+        let inverse = (1..9)
+            .find(|candidate| multiplier * candidate % 9 == 1)
+            .expect("row multiplier must be a unit modulo 9");
+        std::array::from_fn(|row| {
+            let translated = (row + 9 - translation % 9) % 9;
+            rows[inverse * translated % 9]
+        })
+    }
+
+    fn invariant_row_pair_symmetry_images(pair: ([i32; 9], [i32; 9])) -> [([i32; 9], [i32; 9]); 6] {
+        let (left, right) = pair;
+        // The first four generators are independent sequence symmetries that
+        // preserve the centered order-3 invariant family: translation by the
+        // subgroup-fixed CRT point (3,0), and reversal.  Multiplication by 2
+        // must act on both sequences; the final generator swaps the pair.
+        [
+            (transform_row_marginal(left, 1, 3), right),
+            (left, transform_row_marginal(right, 1, 3)),
+            (transform_row_marginal(left, 8, 0), right),
+            (left, transform_row_marginal(right, 8, 0)),
+            (
+                transform_row_marginal(left, 2, 0),
+                transform_row_marginal(right, 2, 0),
+            ),
+            (right, left),
+        ]
+    }
+
+    fn invariant_row_pair_symmetry_orbit_distribution(
+        exact_pairs: &BTreeSet<([i32; 9], [i32; 9])>,
+    ) -> BTreeMap<usize, usize> {
+        let mut remaining = exact_pairs.clone();
+        let mut distribution = BTreeMap::new();
+        while let Some(seed) = remaining.iter().next().copied() {
+            let mut orbit = BTreeSet::from([seed]);
+            let mut frontier = vec![seed];
+            while let Some(pair) = frontier.pop() {
+                for image in invariant_row_pair_symmetry_images(pair) {
+                    assert!(
+                        exact_pairs.contains(&image),
+                        "row-pair symmetry must preserve the exact survivor set"
+                    );
+                    if orbit.insert(image) {
+                        frontier.push(image);
+                    }
+                }
+            }
+            *distribution.entry(orbit.len()).or_default() += 1;
+            for pair in orbit {
+                remaining.remove(&pair);
+            }
+        }
+        distribution
+    }
+
+    fn invariant_order3_pb_geometry(subgroup: &[u32]) -> (usize, usize, usize, usize, usize) {
+        let coordinate_orbits = action_orbits_mod(333, subgroup, true);
+        let mut orbit_lookup = [usize::MAX; 333];
+        for (orbit_index, orbit) in coordinate_orbits.iter().enumerate() {
+            for coordinate in orbit {
+                orbit_lookup[*coordinate as usize] = orbit_index;
+            }
+        }
+
+        let mut seen_shifts = [false; 333];
+        seen_shifts[0] = true;
+        let mut shift_representatives = Vec::new();
+        for shift in 1..333u32 {
+            if seen_shifts[shift as usize] {
+                continue;
+            }
+            shift_representatives.push(shift);
+            for multiplier in subgroup {
+                let image = multiplier * shift % 333;
+                seen_shifts[image as usize] = true;
+                seen_shifts[((333 - image) % 333) as usize] = true;
+            }
+        }
+
+        let mut union_edges = BTreeSet::new();
+        let mut total_pb_terms = 0usize;
+        let mut min_pb_terms = usize::MAX;
+        let mut max_pb_terms = 0usize;
+        for shift in &shift_representatives {
+            let mut weights = BTreeMap::<(usize, usize), usize>::new();
+            for coordinate in 0..333usize {
+                let left = orbit_lookup[coordinate];
+                let right = orbit_lookup[(coordinate + *shift as usize) % 333];
+                if left == right {
+                    continue;
+                }
+                let edge = if left < right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                *weights.entry(edge).or_default() += 1;
+            }
+            union_edges.extend(weights.keys().copied());
+            let pair_terms = 2 * weights.len();
+            total_pb_terms += pair_terms;
+            min_pb_terms = min_pb_terms.min(pair_terms);
+            max_pb_terms = max_pb_terms.max(pair_terms);
+        }
+
+        assert_eq!(coordinate_orbits.len(), 113);
+        assert_eq!(
+            coordinate_orbits
+                .iter()
+                .map(Vec::len)
+                .fold(BTreeMap::new(), |mut counts, size| {
+                    *counts.entry(size).or_default() += 1;
+                    counts
+                }),
+            BTreeMap::from([(1, 3), (3, 110)])
+        );
+        assert_eq!(union_edges.len(), 113 * 112 / 2);
+        (
+            shift_representatives.len(),
+            2 * union_edges.len(),
+            total_pb_terms,
+            min_pb_terms,
+            max_pb_terms,
+        )
+    }
+
+    #[test]
+    fn multiplier_order3_pb_shard_geometry_matches_audit() {
+        let subgroups = [[1, 121, 322], [1, 211, 232]];
+        let first_exact_pairs = invariant_order3_exact_row_pairs(&subgroups[0]);
+        let second_exact_pairs = invariant_order3_exact_row_pairs(&subgroups[1]);
+        assert_eq!(first_exact_pairs, second_exact_pairs);
+        assert_eq!(first_exact_pairs.len(), 1_296);
+
+        let orbit_distribution = invariant_row_pair_symmetry_orbit_distribution(&first_exact_pairs);
+        assert_eq!(orbit_distribution, BTreeMap::from([(36, 2), (72, 17)]));
+        let row_pair_shard_count = orbit_distribution.values().sum::<usize>();
+        assert_eq!(row_pair_shard_count, 19);
+        assert_eq!(subgroups.len() * row_pair_shard_count, 38);
+
+        for subgroup in subgroups {
+            let (shift_equations, xor_variables, pb_terms, min_terms, max_terms) =
+                invariant_order3_pb_geometry(&subgroup);
+            assert_eq!(shift_equations, 56);
+            assert_eq!(xor_variables, 12_656);
+            assert_eq!(226 + xor_variables, 12_882);
+            assert_eq!(4 * xor_variables, 50_624);
+            assert_eq!(pb_terms, 36_092);
+            assert_eq!((min_terms, max_terms), (222, 662));
+        }
+    }
 
     #[test]
     fn lp_search_config_parser_reads_key_value_file() {
@@ -9348,6 +10125,57 @@ mod tests {
                 other => panic!("unexpected column generator {other}"),
             }
         }
+    }
+
+    #[test]
+    fn multiplier_mixed_shift_pair_graph_sweep_has_shift31_baseline() {
+        let pairs = row_mod3_bundle_pair_masses();
+        let hypotheses = cyclic_multiplier_hypotheses(&units_mod(333), 333, &pairs);
+        let hypothesis = hypotheses
+            .iter()
+            .find(|hypothesis| {
+                hypothesis.order == 3
+                    && hypothesis.row_units.as_slice() == [1, 4, 7]
+                    && hypothesis.column_units.as_slice() == [1, 10, 26]
+            })
+            .expect("order-3 mixed CRT target must exist");
+        let analysis = row_units_147_invariant_mixed_shift_pair_graph_analysis(
+            &pairs,
+            &hypothesis.subgroup,
+            3,
+        );
+
+        assert_eq!(analysis.exact_row_pair_count, 1_296);
+        assert_eq!(analysis.fixed_triple_target_count, 42);
+        assert_eq!(analysis.nonfixed_row_sum_target_count, 6);
+        assert_eq!(analysis.column_shift_representatives.len(), 12);
+        assert_eq!(analysis.column_shift_representatives[0], 1);
+        assert_eq!(analysis.single_shift_graphs.len(), 12);
+        assert_eq!(analysis.pair_graph_count, 66);
+        assert_eq!(analysis.top_pair_graphs.len(), 3);
+        assert!(analysis
+            .top_pair_graphs
+            .iter()
+            .all(|graph| graph.column_shifts.0 < graph.column_shifts.1));
+
+        let shift1 = analysis
+            .single_shift_graphs
+            .iter()
+            .find(|graph| graph.column_shift == 1)
+            .expect("shift-1 representative must be present");
+        let fixed_shift1 = col10_fixed_triple_mixed_shift_graph_stats(1);
+        let nonfixed_shift1 =
+            col10_nonfixed_row_orbit_mixed_shift_graph_stats(analysis.column_generator, 1);
+        assert_eq!(shift1.fixed_graph.edge_count, fixed_shift1.edge_count);
+        assert_eq!(
+            shift1.fixed_graph.frontier_width,
+            fixed_shift1.frontier_width
+        );
+        assert_eq!(shift1.nonfixed_graph.edge_count, nonfixed_shift1.edge_count);
+        assert_eq!(
+            shift1.nonfixed_graph.frontier_width,
+            nonfixed_shift1.frontier_width
+        );
     }
 
     #[test]

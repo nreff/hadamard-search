@@ -161,6 +161,53 @@ Completion standard:
 Current status:
 - started via `search lp --config ...` support, checked baseline and campaign-template configs, hardened artifact version rejection, and experimental direct-joint benchmark baselines through reduced length `11`, but not close to completion because the current production compressed enumeration does not scale to `333`
 
+## M7. Preserve, Verify, And Identify `HM(668)`
+
+Goal:
+- preserve the public order-`668` construction as a reproducible, independently
+  checked repository artifact and identify its exact mathematical array
+
+Implementation:
+- exact `668 x 668` `+/-` fixture
+- primary-source URLs and content hashes
+- sign-strict, ragged-row-checking matrix parser and exact Gram verification
+- independent reconstruction from the published payload
+- standard-library Python mathematical reconstruction independent of the public
+  shell generator and native Rust implementation
+- compact four-sequence seed extracted from the first `664` signs of the primary
+  sign stream
+- native Wallis–Whiteman bordered-array constructor
+- exact cyclic type-`H_4^*` and PAF validation
+
+Required gates:
+- fixture SHA-256 is
+  `bdeb5059d77e2703211082627b60441b8c888c928a55cc6f295e011941a387b0`
+- exactly `668` rows of `668` signs are present
+- all `222,778` unordered row pairs have dot product zero
+- a separately reconstructed artifact is byte-identical
+- four seed rows have length `166`, row sums `[2,0,0,0]`, and combined PAF `-4`
+  at all `165` nonzero shifts
+- their negative supports have parameters `(166;82,83,83,83;164)` and satisfy the
+  type-`H_4^*` identity
+- `cargo run -p hadamard-cli -- build spence --sequences-in fixtures/known/hm-668/spence-sequences.txt --output OUTPUT`
+  reproduces the fixture byte for byte
+- `uv run python py/reconstruct_hm668.py fixtures/known/hm-668/spence-sequences.txt OUTPUT`
+  independently reproduces the same bytes and SHA-256
+- all earlier milestone gates remain green
+
+Completion standard:
+- `H H^T = 668 I` is recomputed from the stored signs, not trusted from a
+  reported score or screenshot
+- the identity `sum_i C_i C_i^T = 668 I - 4 J` and the border cancellation provide
+  a structural proof independent of exhaustive pairwise verification
+- provenance distinguishes the now-explained generic bordered array from the still
+  unknown discovery/search origin of this particular cyclic `Z_166` seed
+
+Current status:
+- complete on `2026-08-12`; see the fixture
+  [`README.md`](../fixtures/known/hm-668/README.md) and
+  [`hm-668-construction.md`](research/hm-668-construction.md)
+
 ## Working rule
 
 When starting any new feature branch or implementation chunk:

@@ -175,6 +175,15 @@ Current measured picture:
   - `--invariant-shift31-profile-limit N` raises the raw/compressed profile cap;
     in release mode, cap `30,000,000` completes the fixed side exactly with peak
     `20,849,958` row signatures and `58,360,095` energy bits
+  - `hadamard analyze lp333-multiplier --invariant-mixed-shift-pairs` now ranks
+    coupled mixed-shift graph candidates before building a heavier exact DP; for
+    both surviving order-`3` mixed targets, `(1,11)` represents the cheapest
+    observed multiplier-ratio class, with fixed frontier width `6` and nonfixed
+    union frontier width `18`; the `66` labeled pairs reduce to `6` ratio classes,
+    so `(1,11)` is neither unique nor proved strongest
+  - a test-backed PB geometry audit partitions the `1,296` exact row pairs into
+    `19` safe symmetry orbits per subgroup and derives `226` base variables,
+    `12,656` XOR auxiliaries, and `56` weighted equations per planned shard
 - Representative surviving order-`3` hypotheses include subgroups
   `{1,121,322}` and `{1,211,232}` after removing the column-trivial representative
   `{1,112,223}`.
@@ -196,9 +205,10 @@ Interpretation:
   while enforcing exactly coupled mixed CRT character constraints.
 - The implementation lesson from the shift `(3,1)` graph is now sharper: the
   target alphabet is small enough for exact release-mode single-shift lifting, but
-  that exact lift is non-pruning. The next graph-structured solver should couple
-  multiple mixed shifts or add a stronger invariant across fixed and nonfixed row
-  orbits before reaching for a heavier transform.
+  that exact lift is non-pruning. A full weighted-PB export over the `19` safe
+  row-pair representatives per subgroup is less memory-sensitive than the apparent
+  two-energy coupled frontier. Use `(1,11)` only as a targeted propagator
+  calibration unless a stronger value representation is found.
 
 ### Paper-first tasks
 

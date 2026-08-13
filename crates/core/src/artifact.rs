@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
 pub const CURRENT_ARTIFACT_VERSION: u32 = 1;
+pub const CURRENT_CHECKPOINT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtifactHeader {
@@ -46,6 +47,7 @@ pub struct CheckpointState {
     pub compression: usize,
     pub shard_index: usize,
     pub shard_count: usize,
+    pub row_sum_target: i32,
     pub next_attempt: u64,
     pub matches_found: u64,
 }
@@ -57,14 +59,16 @@ impl CheckpointState {
         compression: usize,
         shard_index: usize,
         shard_count: usize,
+        row_sum_target: i32,
     ) -> Self {
         Self {
-            version: 1,
+            version: CURRENT_CHECKPOINT_VERSION,
             mode: mode.into(),
             length,
             compression,
             shard_index,
             shard_count,
+            row_sum_target,
             next_attempt: 0,
             matches_found: 0,
         }
@@ -78,6 +82,7 @@ impl CheckpointState {
         let _ = writeln!(out, "compression={}", self.compression);
         let _ = writeln!(out, "shard_index={}", self.shard_index);
         let _ = writeln!(out, "shard_count={}", self.shard_count);
+        let _ = writeln!(out, "row_sum_target={}", self.row_sum_target);
         let _ = writeln!(out, "next_attempt={}", self.next_attempt);
         let _ = writeln!(out, "matches_found={}", self.matches_found);
         out
@@ -90,6 +95,7 @@ impl CheckpointState {
         let mut compression = None;
         let mut shard_index = None;
         let mut shard_count = None;
+        let mut row_sum_target = None;
         let mut next_attempt = None;
         let mut matches_found = None;
 
@@ -114,6 +120,9 @@ impl CheckpointState {
                 "shard_count" => {
                     shard_count = Some(value.trim().parse::<usize>().map_err(|e| e.to_string())?)
                 }
+                "row_sum_target" => {
+                    row_sum_target = Some(value.trim().parse::<i32>().map_err(|e| e.to_string())?)
+                }
                 "next_attempt" => {
                     next_attempt = Some(value.trim().parse::<u64>().map_err(|e| e.to_string())?)
                 }
@@ -127,10 +136,10 @@ impl CheckpointState {
         Ok(Self {
             version: {
                 let version = version.ok_or_else(|| "missing version".to_string())?;
-                if version != CURRENT_ARTIFACT_VERSION {
+                if version != CURRENT_CHECKPOINT_VERSION {
                     return Err(format!(
                         "unsupported checkpoint version {version}; expected {}",
-                        CURRENT_ARTIFACT_VERSION
+                        CURRENT_CHECKPOINT_VERSION
                     ));
                 }
                 version
@@ -140,6 +149,7 @@ impl CheckpointState {
             compression: compression.ok_or_else(|| "missing compression".to_string())?,
             shard_index: shard_index.ok_or_else(|| "missing shard_index".to_string())?,
             shard_count: shard_count.ok_or_else(|| "missing shard_count".to_string())?,
+            row_sum_target: row_sum_target.ok_or_else(|| "missing row_sum_target".to_string())?,
             next_attempt: next_attempt.ok_or_else(|| "missing next_attempt".to_string())?,
             matches_found: matches_found.ok_or_else(|| "missing matches_found".to_string())?,
         })
@@ -148,17 +158,18 @@ impl CheckpointState {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckpointState, CURRENT_ARTIFACT_VERSION};
+    use super::{CheckpointState, CURRENT_CHECKPOINT_VERSION};
 
     #[test]
     fn checkpoint_roundtrip() {
         let original = CheckpointState {
-            version: 1,
+            version: CURRENT_CHECKPOINT_VERSION,
             mode: "lp".into(),
             length: 333,
             compression: 9,
             shard_index: 2,
             shard_count: 64,
+            row_sum_target: 1,
             next_attempt: 10_000,
             matches_found: 7,
         };
@@ -169,8 +180,8 @@ mod tests {
     #[test]
     fn checkpoint_rejects_unknown_version() {
         let text = format!(
-            "version={}\nmode=lp\nlength=9\ncompression=3\nshard_index=0\nshard_count=1\nnext_attempt=0\nmatches_found=0\n",
-            CURRENT_ARTIFACT_VERSION + 1
+            "version={}\nmode=lp\nlength=9\ncompression=3\nshard_index=0\nshard_count=1\nrow_sum_target=1\nnext_attempt=0\nmatches_found=0\n",
+            CURRENT_CHECKPOINT_VERSION + 1
         );
         let error = CheckpointState::from_text(&text).expect_err("expected version error");
         assert!(error.contains("unsupported checkpoint version"));

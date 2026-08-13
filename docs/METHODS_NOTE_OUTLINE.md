@@ -2,19 +2,20 @@
 
 Working title:
 
-- `Joint Compressed Search and Exact-Tail Completion for Legendre-Pair Search Toward Hadamard Order 668`
+- `Joint Compressed Search and Exact-Tail Completion for Legendre-Pair Search: Methods Developed Toward Hadamard Order 668`
 
 Purpose:
 
 - provide a paper-ready skeleton for a computational-methods note
-- separate the method contribution from the still-open `HM(668)` existence question
+- separate the historical method contribution from the subsequently solved
+  `HM(668)` existence target
 - keep future claims disciplined and benchmark-backed
 
 ## 1. Abstract
 
 Target shape:
 
-- one paragraph on the `HM(668)` motivation
+- one paragraph on `HM(668)` as the original motivation and its subsequent solution
 - one paragraph on the search bottleneck in compressed Legendre-pair search
 - one paragraph stating the method contribution:
   - direct joint compressed `(A, B)` search
@@ -29,20 +30,29 @@ Claims that are safe here:
 - method-oriented improvement
 - verified smaller-case correctness ladder
 - experimentally documented failed alternatives
+- the order-`668` artifact was later independently reconstructed and identified as a
+  cyclic type-`H_4^*` Wallis–Whiteman construction
 
 Claims to avoid here:
 
-- any implication that `HM(668)` is solved
+- any implication that this search method discovered or produced the known
+  `HM(668)` witness
+- any unsupported claim that its particular cyclic seed came from one of Spence's
+  relative-difference-set families
 - any implication of nonexistence from negative runs
 
 ## 2. Problem Setting
 
 Explain:
 
-- Hadamard order `668`
+- Hadamard order `668` as the formerly open motivating target
 - Legendre pair of length `333`
 - 2cc construction
 - why compressed search is necessary
+- the later public solution as context, with a short pointer to
+  [`hm-668-construction.md`](research/hm-668-construction.md): its seed is a cyclic
+  type-`H_4^*` family on `Z_166` used in the standard Wallis–Whiteman
+  bordered array, not an output of the LP(333) pipeline
 
 Keep this section short. The contribution is computational method, not a survey.
 
@@ -162,6 +172,9 @@ Describe the trust model:
 - backend agreement tests
 - compressed-to-exact recovery tests
 - schema/version rejection tests
+- independent exact verification of the stored `668 x 668` matrix
+- byte-identical reconstruction from the compact `4 x 166` seed, together with the
+  exact PAF identity and bordered-array proof
 
 This section is important if the note is to be taken seriously as computational mathematics.
 
@@ -176,7 +189,9 @@ Structure:
 
 Safe current statement for the last items:
 
-- reduced length `15` (`length=45`, `compression=3`, `tail_depth=12`, shift-`1` seam-aware join, `K=1`) completes in `14.13s`, with `48` branches and `129335` checked tail candidates
+- reduced length `15` (`length=45`, `compression=3`, `tail_depth=12`, packed
+  shift-`1` seam-aware join, `K=1`) has a best recorded time of `12.60s`, with `48`
+  branches and `129335` checked tail candidates
 - reduced length `17` (`length=51`, `compression=3`, `tail_depth=12`, shift-`1` seam-aware join, `K=0`, plus the larger-instance-only exact small-shift filter) completes in `95.87s`, with `768` branches and `223670` checked tail candidates
 - reduced length `21` (`length=63`, `compression=3`, `tail_depth=12`, `K=0`) still exceeds a `300s` cap
 - this strengthens the main interpretation: the next barrier is tail-candidate multiplicity, not branching
@@ -188,6 +203,8 @@ Do not pad this section with speculative extrapolation to `333`.
 Core message:
 
 - the method does not yet solve the `333` problem
+- the known order-`668` witness comes from a separate cyclic `H_4^*` bordered
+  construction and does not retroactively validate the LP search at scale
 - but it changes the computational regime on a nontrivial reduced benchmark
 - the current dominant cost is tail-key multiplicity, not DFS branching
 
@@ -208,6 +225,7 @@ Be explicit:
 - current evidence is strongest on reduced lengths `11`, `15`, and `17`, but only as `max_pairs=1` timing anchors rather than full campaign-scale evidence
 - no claim of asymptotic superiority
 - no claim that the method will reach `333` unchanged
+- no claim that this method discovered the public order-`668` construction
 
 ## 11. Next Research Directions
 
@@ -233,6 +251,7 @@ Include:
 - Rust version
 - exact commands for:
   - `cargo test`
+  - native order-`668` reconstruction and verification
   - reduced length `11` benchmark
   - reduced length `15` capped run
 
@@ -240,6 +259,11 @@ Recommended command block:
 
 ```bash
 cargo test
+cargo run -p hadamard-cli -- build spence --sequences-in fixtures/known/hm-668/spence-sequences.txt --output /tmp/hm668-spence.txt
+cmp /tmp/hm668-spence.txt fixtures/known/hm-668/matrix.txt
+uv run python py/reconstruct_hm668.py fixtures/known/hm-668/spence-sequences.txt /tmp/hm668-python.txt
+cmp /tmp/hm668-python.txt fixtures/known/hm-668/matrix.txt
+cargo run -p hadamard-cli -- verify matrix --input fixtures/known/hm-668/matrix.txt
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 33 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 11 --max-pairs 1
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 45 --compression 3 --ordering natural --spectral-frequencies 1 --tail-depth 12 --max-pairs 1
 cargo run -p hadamard-cli -- benchmark compressed-pairs --length 51 --compression 3 --ordering natural --spectral-frequencies 0 --tail-depth 12 --max-pairs 1
@@ -250,6 +274,8 @@ timeout 300s cargo run -p hadamard-cli -- benchmark compressed-pairs --length 63
 
 Before drafting the full note, gather:
 
+- one compact provenance/construction table for the separate known order-`668`
+  result, clearly outside the LP benchmark evidence
 - one table for the exact known-case ladder
 - one table for the length-`15`, factor-`3` production compressed/decompression pipeline
 - one table for direct-joint tail-depth sweep
@@ -262,5 +288,8 @@ If this methods note were written now, the central thesis should be:
 
 - exact-tail completion in joint compressed Legendre-pair search can qualitatively change the search regime on meaningful reduced instances, and this is more important than further local pruning of ordinary DFS branches
 - the current best evidence for that claim is the shift from branch-dominated search to exact-tail-key-dominated search on reduced lengths `11`, `15`, and `17`
+- order `668` is now known through a separate cyclic `H_4^*`
+  Wallis–Whiteman construction; that fact supplies historical context, not
+  evidence for or against the LP method thesis
 
 That is the strongest claim the current evidence can support cleanly.

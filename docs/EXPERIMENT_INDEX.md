@@ -1,8 +1,8 @@
 # Experiment Index
 
-Last updated: 2026-07-02
+Last updated: 2026-08-12
 
-Recorded experiments: 46
+Recorded experiments: 60
 
 Source of truth: [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md). This index is the
 accounting layer: it tracks count, date, current status, area, and the shortest
@@ -20,12 +20,14 @@ useful finding for each recorded experiment.
 
 ## Current Rollup
 
-- Adopted: 16
+- Adopted: 22
 - Rejected: 21
-- Measured calibration: 4
+- Measured calibration: 6
 - Tried but not promoted: 3
 - Narrowed but not rejected: 1
 - Deferred: 1
+- Measured/Unresolved: 4
+- Measured/Rejected-as-naive: 2
 
 ## Registry
 
@@ -77,3 +79,17 @@ useful finding for each recorded experiment.
 | H044 | undated | Rejected | Tail oracle | Adaptive probe-side choice in exact `6+6` join | Symmetric probe-side logic is noncompetitive against the current anchor. |
 | EXP-2026-07-02-01 | 2026-07-02 | Adopted | Multiplier shift profile | Linear-frontier order for shift-`(3,1)` profiles | Nonfixed compressed profiles complete exactly at the default cap; fixed side now needs denser signature storage, not larger caps. |
 | EXP-2026-07-02-02 | 2026-07-02 | Measured | Multiplier shift lift | Exact shift-`(3,1)` lift for surviving order-`3` targets | Release-mode exact lift completes but keeps all `1,296` row pairs; single shift-`(3,1)` is non-pruning. |
+| EXP-2026-07-10-01 | 2026-07-10 | Measured/Unresolved | Eliahou fixed-`q` repair | Audit and exact PB reduction of the 64-modular seed | Reproduced `13` defects and a `164`-variable, `81`-equation exact PB model; Z3 and CP-SAT both timed out, so no SAT/UNSAT result is claimed. |
+| EXP-2026-07-10-02 | 2026-07-10 | Measured/Rejected-as-naive | Local repair / SDS calibration | Single, mirror, fixed-`q`, and warm-projection calibration | No zero repair; observed scaled-L2 scores were about `288` / `308`, fixed-`q` flips about `708`, and warm projection about `170` versus random `136`. |
+| EXP-2026-07-24-01 | 2026-07-24 | Adopted | Fixed-`q` quotient sieve | Exact modulo-`4` cyclic quotient table and shards | The fixed-`q` identity has exactly `42` admissible modulo-`4` residue-sum pairs; the table roughly doubled bounded Z3 SAT conflict throughput but all short shards remained unresolved. |
+| EXP-2026-07-24-02 | 2026-07-24 | Measured/Unresolved | Fixed-`q` proof campaign | Restricted-OPB export and RoundingSat calibration | Exported `42` exact shards of `6,806` variables and `26,663` constraints; every five-second native-PB run hit its limit, so no SAT/UNSAT claim is made. |
+| EXP-2026-07-24-03 | 2026-07-24 | Adopted | Fixed-`q` campaign symmetry | Length-`81` reversal quotient | Reversal fixes `10` quotient cases and pairs the other `32`, reducing the exhaustive proof campaign from `42` raw cases to `26` manifest-tracked representatives. |
+| EXP-2026-07-24-04 | 2026-07-24 | Measured | Multiplier-invariant PB design | Symmetry and shard-geometry audit | The `1,296` row-marginal pairs reduce to `19` safe orbits per subgroup; each of `38` planned shards has `12,882` variables and `56` weighted shift equations. |
+| EXP-2026-07-24-05 | 2026-07-24 | Measured/Unresolved | Fixed-`q` PB portfolio | Learned-cardinality tuning and 30-second representative run | `--bits-learned=1` improved bounded throughput and memory, but all `26` representatives still timed out after `5,503,589` aggregate conflicts. |
+| EXP-2026-07-24-06 | 2026-07-24 | Adopted | Fixed-`q` exact parity sieve | Lag-cardinality parity consequences | Exact mod-`2` lag consequences exclude `20` of `42` raw cases, leaving `22` feasible cases and `14` reversal orbits; the reduced PB run remains unresolved. |
+| EXP-2026-07-24-07 | 2026-07-24 | Measured/Rejected-as-naive | Structure-aware fixed-`q` annealing | Residue-preserving swap neighborhoods | No zero was found; modulo-`4` neighborhoods reached best energy `568` but had worse mean energy than the parity-only control, and `12` tested shards were later proved impossible. |
+| EXP-2026-07-24-08 | 2026-07-24 | Measured | Higher fixed-`q` quotient propagation | Exact higher-modulus enumeration and compact modulo-`6` encoding | Higher quotients remove no modulo-`4` shard; the compact modulo-`6` extension changed `14 x 5s` RoundingSat conflicts by only `+0.19%`, so it is not promoted. |
+| EXP-2026-07-24-09 | 2026-07-24 | Adopted | PB proof validation | RoundingSat proof logging plus VeriPB | A real timeout transcript verified as `NO CONCLUSION` and a learned-clause UNSAT smoke test verified as `UNSATISFIABLE`; proof logging costs about `15%` throughput. |
+| EXP-2026-07-24-10 | 2026-07-24 | Measured/Unresolved | Fixed-`q` normalized symmetry | Exact `T` stabilizer and reduced `T`-fixed subfamily | The exact restricted model shrinks to `1,642` variables and `6,288` constraints, but all `14 x 30s` PB and `14 x 10s` Z3 probes timed out. |
+| EXP-2026-08-12-01 | 2026-08-12 | Adopted | HM(668) provenance and verification | Reconstruct the public order-668 artifact and check it independently | The primary [payload](https://x.com/__alpoge__/status/2087504785952182273) and [decoder](https://x.com/__alpoge__/status/2087504788938510427) produced the `668 x 668` fixture with SHA-256 `bdeb5059d77e2703211082627b60441b8c888c928a55cc6f295e011941a387b0`; two exact verifiers each checked all `222,778` off-diagonal row pairs. |
+| EXP-2026-08-12-02 | 2026-08-12 | Adopted | HM(668) structural reconstruction | Identify the compact seed and decoded bordered array | The first `664` primary-stream signs form a cyclic type-`H_4^*` family `(166;82,83,83,83;164)` with combined PAF `-4`; the native Wallis–Whiteman builder reconstructs the fixture byte for byte. |

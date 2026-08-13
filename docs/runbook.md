@@ -28,6 +28,46 @@ Resume:
 cargo run -p hadamard-cli -- search lp --length 5 --resume outputs/examples/lp5.chk --max-attempts 1024
 ```
 
+Checkpoint schema `v2` records the row-sum target. If an older ignored example
+checkpoint reports `unsupported checkpoint version 1`, regenerate it with the first
+command before resuming; it is intentionally not guessed or silently migrated.
+
+## Fixed-`q` modular Golay campaign
+
+```bash
+uv run python py/search_modular_golay.py --audit-only
+uv run python py/search_modular_golay.py --timeout-seconds 300
+uv run python py/search_modular_golay.py --quotient-case-index 0 --timeout-seconds 300
+uv run python py/search_modular_golay.py --export-opb-dir outputs/fixed-q-opb
+uv run python py/search_modular_golay.py --export-t-fixed-opb-dir outputs/fixed-q-opb-t-fixed
+uv run python py/search_modular_golay.py --export-opb-dir outputs/fixed-q-opb-all --opb-all-cases
+uv run python py/test_search_modular_golay.py
+roundingsat --lp=0 --bits-learned=1 --print-sol=1 --proof-log=outputs/fixed-q-case-00.pbp outputs/fixed-q-opb/fixed-q-mod4-case-00.opb > outputs/fixed-q-case-00.model
+veripb outputs/fixed-q-opb/fixed-q-mod4-case-00.opb outputs/fixed-q-case-00.pbp
+uv run python py/search_modular_golay.py --verify-opb-model outputs/fixed-q-case-00.model --output outputs/modular-golay-fixed-q.txt
+roundingsat --lp=0 --bits-learned=1 --print-sol=1 outputs/fixed-q-opb-t-fixed/fixed-q-t-fixed-mod4-case-00.opb > outputs/fixed-q-t-fixed-case.model
+uv run python py/search_modular_golay.py --verify-t-fixed-opb-model outputs/fixed-q-t-fixed-case.model --output outputs/modular-golay-fixed-q.txt
+```
+
+The cyclic quotient table has `42` exhaustive raw cases. Exact mod-`2` consequences
+of the lag cardinalities reject `20`, leaving `22` parity-compatible cases; reversal
+of the length-`81` sequence leaves `14` representatives. The default v3 manifest
+records the parity exclusions and reversal coverage without renumbering the raw case
+IDs. `--opb-all-cases` reproduces all `42` raw shards. Treat `unknown` and
+`TIMELIMIT` as unresolved. A SAT model must pass `--verify-opb-model`; an UNSAT
+campaign is complete only after all `14` representative proofs, the tested reversal
+isomorphism, and the documented lag-parity lemma are checked. Use all `42` raw
+shards when standalone per-case certificates are required.
+
+`--quotient-case-index` uses the stable raw IDs and rejects a parity-excluded ID
+before solving. RoundingSat timeout transcripts should verify as `NO CONCLUSION`;
+only a terminal proof accepted as `UNSATISFIABLE` discharges a shard.
+
+The `--export-t-fixed-opb-dir` campaign is an exact construction probe with `82`
+independent signs, `1,642` total variables, and `6,288` constraints per shard. A
+verified SAT model solves the original fixed-`q` problem; an UNSAT campaign excludes
+only the explicitly labeled `T`-fixed subfamily.
+
 ## Compressed search and decompression demo
 
 ```bash
@@ -64,7 +104,9 @@ Current baseline:
 - the experimental direct compressed-pair probe recovers the known length-`15`, factor-`3` projection after `4960` joint branches
 - with exact joint squared-norm pruning, endpoint-aware autocorrelation intervals, selected-frequency pair-PSD bounds, packed exact-tail lookup, and tail depth `6`, the natural-order direct probe reaches its first length-`33`, factor-`3` compressed pair after `1360` branches
 - with the shift-`1` seam-aware factorized join and `1` monitored frequency, the reduced length-`11` benchmark now checks only `8399` tails and completes in `9.77s`
-- the best current reduced length-`15` anchor is now `length=45`, `compression=3`, `tail_depth=12`, `spectral_frequencies=1`, which reaches a first pair in `14.13` seconds after `48` branches and `129335` checked tail candidates
+- the best recorded packed reduced length-`15` anchor is `length=45`,
+  `compression=3`, `tail_depth=12`, `spectral_frequencies=1`, which reaches a first
+  pair in `12.60` seconds after `48` branches and `129335` checked tail candidates
 - natural order remains the preferred direct-probe benchmark; generator-`2` did not outperform it on the measured reduced length-`11` runs
 - frequency sweep on the same benchmark suggests `4` monitored frequencies is the current sweet spot: `1` is slightly weaker and `10` is no better than `4`
 - tail-depth sweep on the same benchmark:
