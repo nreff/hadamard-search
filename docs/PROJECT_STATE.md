@@ -13,20 +13,18 @@ It answers:
 ## Mission
 
 Current goal:
-- attack `2060 = 4*515`, the least unknown order on the post-announcement public,
-  verifiable record, through exact structured construction families
+- prioritize constructing `H(4412)` in the order-19 multiplier family over
+  `Z_1103`. Track `2396 = 4*599` as the smallest open order
 - preserve and independently validate the now-known Hadamard matrix of order `668`
 - preserve and analyze its now-identified cyclic `H_4^*` / bordered construction
 - determine how its particular `Z_166` seed was discovered or searched for
 - retain the repository's search work as reproducible computational-methods research
 
 Target status:
-- the public `2026-08-12` payload fills the twelve former gaps below `2000`; after
-  updating the 2025 Cati--Pasechnik table, its first surviving entry is `515(3)`,
-  so `H(2060)` is the current reproducible frontier
-- an old claim of `H(2060)` is not accepted as a witness: the modern audit could
-  not verify it, and the apparent order-`103` symmetric-block specialization has
-  a parity obstruction
+- the public `2026-08-12` payload fills the twelve former gaps below `2000`
+- Schneider's `H(2060)` and Cooley's `H(2092)` passed exact local matrix checks
+- Egan et al. and Kumar's later construction register both identify `2396` as
+  the smallest open order. See the [frontier note](research/hm-2396-frontier.md)
 - existence at order `668` is solved
 - the repository fixture is exact and independently verified
 - the generic Wallis–Whiteman array and the exact cyclic seed parameters are
@@ -56,6 +54,10 @@ Background documents:
 - [sds-167.md](/home/nate/projects/hadamard/docs/algorithms/sds-167.md)
 - [modular-golay-167.md](/home/nate/projects/hadamard/docs/research/modular-golay-167.md)
 - [hm-668-construction.md](/home/nate/projects/hadamard/docs/research/hm-668-construction.md)
+- [hm-2396-frontier.md](research/hm-2396-frontier.md)
+- [Order-4412 campaign](research/hm-4412-campaign.md)
+- [Open orders and research problems](research/open-orders-and-problems.md),
+  including the `4412` and `4748` alternatives and subgroup obstructions at `7572`
 - [hm-2060-frontier.md](/home/nate/projects/hadamard/docs/research/hm-2060-frontier.md)
 - [RESEARCH_STATUS.md](/home/nate/projects/hadamard/docs/RESEARCH_STATUS.md)
 - [EXPERIMENT_INDEX.md](/home/nate/projects/hadamard/docs/EXPERIMENT_INDEX.md)
@@ -63,7 +65,17 @@ Background documents:
 ## Current Snapshot
 
 Current state:
-- the selected `H(2060)` attack is a cyclic Goethals--Seidel search over `Z_515`
+- at `4412`, the first joint search reached class defect `1024`. Exact joins
+  exhausted the saved incumbent's neighborhoods of up to four swaps total and
+  two per row. The sampled joins and local repair found no witness. The same
+  join verified injected and repaired controls at `2092`
+- the `H(2396)` row-sum screen excludes every common multiplier subgroup of
+  `Z_599` of order greater than `2` for cyclic Goethals–Seidel seeds
+- for normalized bordered seeds over `Z_598`, the parity quotient excludes 12
+  subgroups, the mod-11 fixed-slice screen excludes `<3>` and `<25>`, and exact
+  enumeration excludes `<25,31>`. The smallest remaining subgroup in this
+  screen is `<45,47>`, with 48 orbits
+- the historical `H(2060)` attack was a cyclic Goethals--Seidel search over `Z_515`
   invariant under its order-`17` multiplier subgroup; this reduces the four sign
   sequences to `140` orbit-membership bits and the nonzero correlations to `17`
   independent shift-orbit equations
@@ -380,12 +392,12 @@ cmp /tmp/hm668-python.txt fixtures/known/hm-668/matrix.txt
 
 Highest-value next steps:
 
-1. Export, independently audit, and run a proof-producing solver portfolio on the
-   exact order-`17` multiplier-invariant `Z_515` GS shard. Accept only a fully
-   verified SAT witness or proof-checked subfamily UNSAT result; timeouts are no
-   conclusion.
-2. Develop an independent `BS(52,51) -> T(103) -> Cooper--Wallis/W(5)` lane and
-   an order-`103` amicable-matrix lane toward `H(2060)`.
+1. Replay identical `2092` pools through the central and bucket-ranked
+   partial-sum schedules at equal pair budgets. Use the
+   [order-4412 handoff](research/hm-4412-campaign.md#handoff-where-to-look-next)
+   for controls, run metrics, and when to scale the search.
+2. For the smallest-order lane, apply the `Z_46` quotient and mod-3 fixed-slice
+   correlations to `<45,47>` over `Z_598`, using Cooley's seed as a control.
 3. Preserve the primary X payload and decoder provenance, their hashes, and the
    audited reconstruction steps in a durable, reproducible record independent of
    the live social-media presentation.

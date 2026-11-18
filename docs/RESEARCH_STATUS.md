@@ -13,6 +13,11 @@ If this progresses toward a formal write-up, the paper-style skeleton now lives 
 
 ## Verification Stamp
 
+The [November 2026 frontier update](research/hm-2396-frontier.md) records the
+verified witnesses at `2060` and `2092`, the public frontier at `2396`, and the
+first exact multiplier-family screens for the new target. The audit below
+records the order-`668` artifact and earlier methods work.
+
 Last re-checked on `2026-08-12`.
 
 Verified during this audit:
@@ -106,8 +111,8 @@ artifact; it is not a claim that this repository discovered the construction, th
 the current public account is final, or that the general Hadamard conjecture has
 been resolved.
 
-The highest-value work has therefore shifted from witness search to provenance and
-structural analysis. The array, exact seed parameters, and orthogonality proof have
+The remaining order-`668` work concerns provenance and structural analysis.
+The array, exact seed parameters, and orthogonality proof have
 now been recovered; the principal provenance gap is how this particular cyclic
 `Z_166` family was discovered or searched for. The
 repository remains short of a production `LP(333)` search engine, but that is now a

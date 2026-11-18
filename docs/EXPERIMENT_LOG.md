@@ -2,6 +2,12 @@
 
 This file records implementation directions that were tried, measured, and then rejected or deprioritized.
 
+## Order 4412
+
+The [2026-11-18 campaign record](research/hm-4412-campaign.md) contains the target
+decision, matched controls, sampled joins, and exhaustive local repairs around
+the best tabu candidates.
+
 ## Compressed LP search
 
 ### Rejected as a multiplier stabilizer assumption: full column-preserving subgroup

@@ -1,11 +1,30 @@
-# The post-2000 frontier: order 2060
+# The former post-2000 frontier, order 2060
 
-Status date: `2026-08-13`
+## Verified construction
 
-## Claim boundary
+L. Schneider published an order-`2060` witness on `2026-08-23`. His
+construction combines periodic `T`-matrices of order `103` with Williamson
+matrices of order `5` via Cooper–Wallis. The periodic `T`-matrix seed uses the
+order-`3` subgroup `(1,46,56)` of the units modulo `103`. [Schneider's
+constructor](https://github.com/schneiderlo/hadamard-2060/blob/main/hadamard_2060.py)
+and the [survey bibliography](https://arxiv.org/html/2610.27175v2#bib.bib87)
+record the construction.
 
-On the current public, verifiable record, the least admissible order for which no
-Hadamard matrix has been verified is
+The Python and Rust verifiers each checked all `2,120,770` unordered
+off-diagonal row pairs of [Schneider's original sign matrix](https://gist.github.com/schneiderlo/b866a2ff2fcd93934f0db54cfa4069d0).
+The downloaded `H2060.txt` has SHA-256
+`c7a145d86210740dd3f8ea21ca896a54d6916007a042638f17c8c47f097200f7`.
+
+```bash
+curl -fsSL https://gist.githubusercontent.com/schneiderlo/b866a2ff2fcd93934f0db54cfa4069d0/raw/00784a83279fda136c961e0844616366f9298214/H2060.txt -o /tmp/hadamard-schneider-2060.txt
+python3 py/validate_matrix.py /tmp/hadamard-schneider-2060.txt
+cargo run -q -p hadamard-cli -- verify matrix --input /tmp/hadamard-schneider-2060.txt
+```
+
+## Public record on 2026-08-13
+
+On the public, verifiable record as of `2026-08-13`, the least admissible order
+without a checkable witness was
 
 \[
 2060 = 4\cdot 515 = 4\cdot 5\cdot 103.
@@ -14,8 +33,7 @@ Hadamard matrix has been verified is
 This is a statement about the public construction record, not a nonexistence
 claim.  The Hadamard conjecture predicts that an order-`2060` matrix exists.
 
-The qualification matters because this frontier changed on `2026-08-12`.
-Levent Alpöge's public payload and decoder encode witnesses for the twelve
+Levent Alpöge's `2026-08-12` public payload and decoder encode witnesses for the twelve
 previously missing admissible orders below `2000`:
 
 ```text
@@ -47,7 +65,7 @@ exponent such that an order-`2^m n` Hadamard matrix exists.  Its first entries a
 
 The first twelve odd parts are exactly the twelve cases filled by the new
 payload.  The next entry is `515(3)`: order `8*515 = 4120` is known, while order
-`4*515 = 2060` is not verifiably known.  The next few surviving gaps are
+`4*515 = 2060` had no verifiable witness at that point. The gaps reported at the time were
 
 ```text
 2060, 2092, 2148, 2284, 2292, 2396, 2572, 2588,
@@ -79,10 +97,8 @@ zero-diagonal `51 x 51` sign block with row sum zero.  Its `+1` off-diagonal
 entries would form a `25`-regular graph on `51` vertices, impossible because the
 degree sum `51*25` is odd.
 
-This invalidates that cited specialization; it does **not** prove that `H(2060)`
-does not exist.  If one accepts the old bare claim without a checkable witness,
-then `2092` would be called the next gap.  This project follows the modern,
-reproducible standard and therefore treats `2060` as the frontier.
+This obstruction applies to the cited symmetric-block specialization.
+Schneider's Cooper–Wallis construction supplies the now-verified witness.
 
 Primary historical source: Masahiko Miyamoto, [A construction of Hadamard
 matrices](https://doi.org/10.1016/0097-3165(91)90008-5).
@@ -187,7 +203,7 @@ A bounded four-seed, `170`-second calibration found no witness.  Its best object
 was `24`: eleven equations were exact and the remaining six had residuals `+/-2`.
 This is a useful search baseline but has no exclusion meaning.
 
-## Parallel lanes
+## Parallel lanes proposed in August 2026
 
 The selected shard should not become a single point of failure.  The next lanes
 are:

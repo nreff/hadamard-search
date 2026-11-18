@@ -5,14 +5,14 @@
 Research-grade tooling for computational Hadamard-matrix research, originally
 centered on the then-open order **668**.
 
-Order `668` is now a solved target: this repository contains an independently
-verified `668 x 668` `+/-1` fixture at
-[`fixtures/known/hm-668/matrix.txt`](fixtures/known/hm-668/matrix.txt). The active
-focus now combines preserving that result with attacking the next public,
-verifiable gap. After the same payload filled all twelve previously missing orders
-below `2000`, the least remaining order is `2060 = 4*515`; see [the frontier and
-attack note](docs/research/hm-2060-frontier.md). The general Hadamard conjecture is
-not resolved by the new finite collection.
+This repository preserves an independently verified `668 x 668` matrix at
+[`fixtures/known/hm-668/matrix.txt`](fixtures/known/hm-668/matrix.txt). Public
+constructions have since closed orders `2060` and `2092`. The smallest order
+without a known Hadamard matrix in the current public record is `2396 = 4*599`.
+The active construction search targets `4412 = 4*1103` because its multiplier
+family is better suited to our search tools. The general Hadamard conjecture
+remains open. See the [order-2396 frontier](docs/research/hm-2396-frontier.md) and
+the [order-4412 campaign](docs/research/hm-4412-campaign.md).
 
 If you are new to the repo, read these first:
 
@@ -70,8 +70,14 @@ Primary background material lives in:
 - [`docs/research/deep-research-report.md`](docs/research/deep-research-report.md)
 - [`docs/research/hm-668-construction.md`](docs/research/hm-668-construction.md) for
   the exact cyclic difference family, bordered array, and orthogonality proof
+- [`docs/research/hm-2396-frontier.md`](docs/research/hm-2396-frontier.md) for the
+  current public record and exact subgroup screens
+- [Open orders and research problems](docs/research/open-orders-and-problems.md)
+  for the Explorer, the survey's open problems, and the search shortlist
+- [Order-4412 campaign](docs/research/hm-4412-campaign.md) for the active
+  construction search, controls, and reproducible local checks
 - [`docs/research/hm-2060-frontier.md`](docs/research/hm-2060-frontier.md) for the
-  post-`2000` frontier derivation and selected multiplier-orbit GS attack
+  historical multiplier-orbit GS attack and verification of Schneider's witness
 - [`docs/research/modular-golay-167.md`](docs/research/modular-golay-167.md) for the exact lift of the published 64-modular order-668 near-construction
 
 ## Current status
@@ -185,7 +191,7 @@ Re-check the verified order-`668` fixture:
 uv run python py/validate_matrix.py fixtures/known/hm-668/matrix.txt
 ```
 
-Audit and export the current exact order-`2060` multiplier shard:
+Audit and export the historical exact order-`2060` multiplier shard:
 
 ```bash
 uv run python py/search_sds_515.py
@@ -331,11 +337,8 @@ sources, exact digest, and independent verification.
 
 Short-term goals:
 
-- launch the exact order-`17` multiplier-invariant cyclic GS shard at core order
-  `515`, with proof-producing UNSAT or independently verified SAT as the only
-  terminal outcomes
-- develop the independent `T(103)` / order-`103` amicable-matrix routes toward
-  `H(2060)`
+- improve and calibrate the `4412` order-`19` cyclic Goethals–Seidel search,
+  using Kumar's order-`2092` witness as a positive control
 - make the primary-source decoding and artifact provenance maximally reproducible
 - preserve and cross-check the now-identified cyclic `H_4^*` bordered construction
 - determine the search or discovery provenance of its particular `Z_166` seed
